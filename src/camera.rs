@@ -95,7 +95,6 @@ impl ManagedCamera {
 /// Application-wide shared state.
 pub struct AppState {
     pub config: Arc<Config>,
-    pub hostname: String,
     pub started: Instant,
     pub state_path: PathBuf,
     /// All connected USB cameras, ordered by device path.
@@ -107,7 +106,6 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: Config, persist: PersistState, state_path: PathBuf) -> Self {
         Self {
-            hostname: read_hostname(),
             config: Arc::new(config),
             started: Instant::now(),
             state_path,
@@ -122,14 +120,6 @@ impl AppState {
 pub enum ControlError {
     NotFound,
     Unsupported,
-}
-
-fn read_hostname() -> String {
-    std::fs::read_to_string("/proc/sys/kernel/hostname")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "camera-box".to_string())
 }
 
 // ---------------------------------------------------------------------------

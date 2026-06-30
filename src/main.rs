@@ -44,6 +44,11 @@ async fn main() -> anyhow::Result<()> {
         std::path::PathBuf::from(STATE_PATH),
     ));
 
+    // Ensure AP (dnsmasq) clients can resolve <hostname>.local in hotspot mode.
+    if let Err(e) = net::write_ap_hostname_mapping(&net::current_hostname()) {
+        tracing::warn!(error = %e, "could not write AP hostname mapping");
+    }
+
     // Background task: uevent hotplug detection + ustreamer supervision.
     tokio::spawn(camera::run(state.clone()));
 

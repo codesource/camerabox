@@ -501,6 +501,74 @@ fn validate_iface(iface: &str) -> NetResult<()> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Hostname (+ make <hostname>.local resolvable for AP clients via dnsmasq)
+// ---------------------------------------------------------------------------
+
+const DNSMASQ_HOST_MAP: &str = "/etc/dnsmasq.d/camera-box.conf";
+
+pub fn current_hostname() -> String {
+    std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "camera-box".to_string())
+}
+
+/// Change the system hostname and refresh mDNS (avahi) + AP DNS (dnsmasq).
+pub async fn set_hostname(name: &str) -> NetResult<()> {
+    validate_hostname(name)?;
+    sh("hostnamectl", &["set-hostname", name]).await?;
+    update_etc_hosts(name)?;
+    write_ap_hostname_mapping(name)?;
+    // Re-advertise <name>.local over mDNS and reload AP DNS (no-op if stopped).
+    sh_ok("systemctl", &["restart", "avahi-daemon"]).await;
+    sh_ok("systemctl", &["restart", "dnsmasq"]).await;
+    info!(hostname = name, "hostname changed");
+    Ok(())
+}
+
+fn validate_hostname(name: &str) -> NetResult<()> {
+    let ok = !name.is_empty()
+        && name.len() <= 63
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        && !name.starts_with('-')
+        && !name.ends_with('-');
+    if ok {
+        Ok(())
+    } else {
+        Err("invalid hostname (letters, digits and '-', not starting/ending with '-')".into())
+    }
+}
+
+/// Point the `127.0.1.1` line at the new hostname.
+fn update_etc_hosts(name: &str) -> NetResult<()> {
+    let content = std::fs::read_to_string("/etc/hosts").map_err(|e| e.to_string())?;
+    let mut out = String::new();
+    let mut replaced = false;
+    for line in content.lines() {
+        if line.trim_start().starts_with("127.0.1.1") {
+            out.push_str(&format!("127.0.1.1\t{name}\n"));
+            replaced = true;
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if !replaced {
+        out.push_str(&format!("127.0.1.1\t{name}\n"));
+    }
+    std::fs::write("/etc/hosts", out).map_err(|e| e.to_string())
+}
+
+/// Make AP (dnsmasq) clients resolve `<name>` and `<name>.local` to the AP IP,
+/// so the box is reachable by name in hotspot mode even without mDNS.
+pub fn write_ap_hostname_mapping(name: &str) -> NetResult<()> {
+    let ap_ip = AP_IP_CIDR.split('/').next().unwrap_or("192.168.4.1");
+    let body = format!("address=/{name}/{ap_ip}\naddress=/{name}.local/{ap_ip}\n");
+    std::fs::write(DNSMASQ_HOST_MAP, body).map_err(|e| e.to_string())
+}
+
 async fn service_exists(unit: &str) -> bool {
     sh("systemctl", &["list-unit-files", unit])
         .await

@@ -42,6 +42,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/network/profile/connect", post(profile_connect))
         .route("/api/system", get(system_info))
         .route("/api/logs", get(logs))
+        .route("/api/hostname", post(set_hostname))
         .merge(update::router())
         .with_state(state.clone());
 
@@ -129,7 +130,7 @@ async fn build_status(state: &AppState, host: &str) -> StatusResponse {
     }
 
     StatusResponse {
-        hostname: state.hostname.clone(),
+        hostname: net::current_hostname(),
         ip_address: host.to_string(),
         uptime: state.started.elapsed().as_secs(),
         cameras,
@@ -290,6 +291,15 @@ async fn system_info() -> Json<crate::sys::SystemInfo> {
 
 async fn logs() -> Json<serde_json::Value> {
     Json(json!({ "lines": crate::logs::snapshot() }))
+}
+
+#[derive(Deserialize)]
+struct HostnameReq {
+    name: String,
+}
+
+async fn set_hostname(Json(r): Json<HostnameReq>) -> Response {
+    net_result(net::set_hostname(&r.name).await)
 }
 
 // ---------------------------------------------------------------------------
