@@ -802,8 +802,7 @@ function camCard(c){
    '<button class="toggle '+(c.enabled?'on':'')+'" onclick="camToggle(this,\''+esc(c.id)+'\','+(!c.enabled)+')"></button></div>'+
   '<label style="margin:14px 0 6px">'+t('quality')+'</label>'+quality+
   '<div class="row" style="margin-top:14px">'+(c.running&&c.stream_url?'<a class="btn primary sm" href="'+esc(c.stream_url)+'" target="_blank">'+ic('play',16)+t('preview')+'</a>':'<button class="btn sm" disabled>'+ic('play',16)+t('preview')+'</button>')+(c.stream_url?'<button class="btn sm" onclick="copyLink(\''+esc(c.stream_url)+'\')">'+ic('link',16)+t('copy_link')+'</button>':'')+'</div>'+
-  (c.stream_user?'<div style="margin-top:12px;font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px">🔒 '+t('protected_stream')+'</div>'+
-   '<details class="expander" style="margin-top:2px"><summary>'+ic('chevron',16)+t('show_login')+'</summary>'+
+  (c.stream_user?'<details class="expander" style="margin-top:12px"><summary>'+ic('chevron',16)+'🔒 '+t('show_login')+'</summary>'+
      '<div class="kvs" style="margin-top:8px;grid-template-columns:auto 1fr">'+
        '<div class="k">'+t('username')+'</div><div class="v" style="text-align:left"><code>'+esc(c.stream_user)+'</code></div>'+
        '<div class="k">'+t('password')+'</div><div class="v" style="text-align:left"><code>'+esc(c.stream_password||'')+'</code></div>'+
