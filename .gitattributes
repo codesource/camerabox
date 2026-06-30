@@ -1,0 +1,3 @@
+# This project deploys to Linux (Raspberry Pi). Keep LF in the repo and on
+# checkout so shell scripts and the systemd unit are never given CRLF.
+* text=auto eol=lf

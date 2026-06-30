@@ -1,0 +1,28 @@
+[Unit]
+Description=camera-box USB camera MJPEG appliance
+Documentation=https://github.com/your-org/camera-box
+# The Wi-Fi AP must be up first so clients can reach the streams.
+After=network.target hostapd.service dnsmasq.service
+Wants=hostapd.service dnsmasq.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/camera-box
+
+# Restart automatically if the daemon ever exits.
+Restart=on-failure
+RestartSec=3
+
+# Needs root for: binding port 80, opening /dev/video* and udev netlink,
+# and spawning ustreamer.
+User=root
+
+# Send all logs to journald (the daemon logs to stdout/stderr).
+StandardOutput=journal
+StandardError=journal
+
+# Light hardening.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

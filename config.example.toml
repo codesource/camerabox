@@ -1,0 +1,27 @@
+# camera-box configuration.
+#
+# Install to: /etc/camera-box/config.toml
+#
+# This file is OPTIONAL. If it is missing, or any key is omitted, the built-in
+# defaults shown below are used.
+
+# Maximum number of cameras to manage (slots cam0 .. camN-1).
+max_cameras      = 2
+
+# Port of the first camera stream; cam1 uses base+1, etc.
+base_stream_port = 8080
+
+# Port for the status web UI and JSON API.
+web_port         = 80
+
+# Static AP IP of this device. Used to build the stream URLs shown to clients.
+device_ip        = "192.168.4.1"
+
+# Path to the ustreamer binary.
+ustreamer_path   = "/usr/bin/ustreamer"
+
+# Requested capture resolution.
+resolution       = "1280x720"
+
+# Requested frames per second.
+fps              = 30

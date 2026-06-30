@@ -1,0 +1,28 @@
+[package]
+name = "camera-box"
+version = "0.1.0"
+edition = "2021"
+description = "USB UVC camera appliance daemon for Raspberry Pi: detects cameras and exposes low-latency MJPEG streams via ustreamer."
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+axum = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+udev = "0.8"
+libc = "0.2"
+anyhow = "1"
+
+# Optimise for a small, fast binary on the Pi Zero (limited flash + RAM).
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
