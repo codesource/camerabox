@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use axum::{
+    body::Body,
     extract::{Path, Request, State},
     http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
@@ -38,6 +39,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/cameras/:id/disable", post(disable_camera))
         .route("/api/cameras/:id/mode", post(set_camera_mode))
         .route("/api/cameras/:id/auth", post(set_camera_auth))
+        .route("/api/cameras/:id/stream", get(proxy_stream))
         .route("/api/network", get(network_status))
         .route("/api/network/scan", post(network_scan))
         .route("/api/network/hotspot", post(network_hotspot))
@@ -252,6 +254,51 @@ fn host_without_port(host: &str) -> String {
 
 async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
+}
+
+/// Same-origin proxy for a (possibly protected) camera's MJPEG stream.
+///
+/// A browser will not send Basic-Auth credentials for a cross-origin `<img>`,
+/// so a protected stream cannot be embedded directly. The logged-in dashboard
+/// instead points its `<img>`/preview at this endpoint (authenticated by the
+/// session cookie); we forward the request to the local `ustreamer`, adding the
+/// per-camera credentials, and stream the multipart response straight back.
+async fn proxy_stream(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
+    let (port, creds) = {
+        let cams = state.cameras.read().await;
+        let cam = match cams.iter().find(|c| c.device.id == id) {
+            Some(c) => c,
+            None => return (StatusCode::NOT_FOUND, "camera not found").into_response(),
+        };
+        let port = match cam.port {
+            Some(p) => p,
+            None => return (StatusCode::NOT_FOUND, "camera not streaming").into_response(),
+        };
+        let s = cam.settings.lock().await;
+        let creds = s
+            .user
+            .clone()
+            .map(|u| (u, s.password.clone().unwrap_or_default()));
+        (port, creds)
+    };
+
+    let url = format!("http://127.0.0.1:{port}/stream");
+    let mut req = reqwest::Client::new().get(&url);
+    if let Some((u, p)) = creds {
+        req = req.basic_auth(u, Some(p));
+    }
+    match req.send().await {
+        Ok(upstream) => {
+            let ct = upstream
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("multipart/x-mixed-replace")
+                .to_string();
+            ([(header::CONTENT_TYPE, ct)], Body::from_stream(upstream.bytes_stream())).into_response()
+        }
+        Err(e) => (StatusCode::BAD_GATEWAY, format!("stream proxy error: {e}")).into_response(),
+    }
 }
 
 async fn status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<StatusResponse> {
@@ -791,7 +838,9 @@ function renderCameras(){
 }
 function camCard(c){
  var pill=!c.enabled?'<span class="pill gray">'+t('off')+'</span>':c.running?'<span class="pill green"><span class="dot"></span>'+t('live')+'</span>':'<span class="pill orange">'+t('starting')+'</span>';
- var thumb=(c.running&&c.stream_url&&!c.protected)?'<img src="'+esc(c.stream_url)+'" style="width:100%;height:100%;object-fit:cover" onerror="this.replaceWith(document.createTextNode(\'\'))">':ic('cameras',34);
+ var psrc=c.protected?('/api/cameras/'+encodeURIComponent(c.id)+'/stream'):(c.stream_url||'');
+ var copyu=(c.protected&&c.stream_url&&c.stream_user)?c.stream_url.replace('://','://'+encodeURIComponent(c.stream_user)+':'+encodeURIComponent(c.stream_password||'')+'@'):(c.stream_url||'');
+ var thumb=(c.running&&c.stream_url)?'<img src="'+esc(psrc)+'" style="width:100%;height:100%;object-fit:cover" onerror="this.replaceWith(document.createTextNode(\'\'))">':ic('cameras',34);
  var q='';
  if(c.modes&&c.modes.length){ c.modes.forEach(function(m){var r=m.width+'x'+m.height;m.fps.forEach(function(f){var v=r+'@'+f;q+='<option value="'+v+'"'+((r===c.resolution&&f===c.fps)?' selected':'')+'>'+r+' · '+f+' fps</option>';});}); }
  var quality=c.modes&&c.modes.length?'<select onchange="camMode(this,\''+esc(c.id)+'\')">'+q+'</select>':'<div class="muted">'+esc(c.resolution)+' · '+c.fps+' fps</div>';
@@ -801,7 +850,7 @@ function camCard(c){
   '<div class="row" style="justify-content:space-between;margin-top:14px;gap:10px"><div><div style="font-weight:700;font-size:15px">'+esc(camName(c))+lock+'</div><div class="muted" style="font-size:13px">'+(c.running?(c.resolution+' · '+c.fps+' fps'):t('camera_w'))+'</div></div>'+
    '<button class="toggle '+(c.enabled?'on':'')+'" onclick="camToggle(this,\''+esc(c.id)+'\','+(!c.enabled)+')"></button></div>'+
   '<label style="margin:14px 0 6px">'+t('quality')+'</label>'+quality+
-  '<div class="row" style="margin-top:14px">'+(c.running&&c.stream_url?'<a class="btn primary sm" href="'+esc(c.stream_url)+'" target="_blank">'+ic('play',16)+t('preview')+'</a>':'<button class="btn sm" disabled>'+ic('play',16)+t('preview')+'</button>')+(c.stream_url?'<button class="btn sm" onclick="copyLink(\''+esc(c.stream_url)+'\')">'+ic('link',16)+t('copy_link')+'</button>':'')+'</div>'+
+  '<div class="row" style="margin-top:14px">'+(c.running&&c.stream_url?'<a class="btn primary sm" href="'+esc(psrc)+'" target="_blank">'+ic('play',16)+t('preview')+'</a>':'<button class="btn sm" disabled>'+ic('play',16)+t('preview')+'</button>')+(c.stream_url?'<button class="btn sm" onclick="copyLink(\''+esc(copyu)+'\')">'+ic('link',16)+t('copy_link')+'</button>':'')+'</div>'+
   (c.stream_user?'<details class="expander" style="margin-top:12px"><summary>'+ic('chevron',16)+'🔒 '+t('show_login')+'</summary>'+
      '<div class="kvs" style="margin-top:8px;grid-template-columns:auto 1fr">'+
        '<div class="k">'+t('username')+'</div><div class="v" style="text-align:left"><code>'+esc(c.stream_user)+'</code></div>'+
