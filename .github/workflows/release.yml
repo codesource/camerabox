@@ -1,12 +1,14 @@
 name: release
 
-# Push a version tag (e.g. `v0.1.0`) to build the Raspberry Pi binaries and
-# publish them as a GitHub Release. Tag pushes authenticate with the same
-# credentials as any other push; the build itself uses the built-in token.
+# Manual-only: releases are normally cut by hand with `gh release create`.
+# This workflow is here as an on-demand alternative — trigger it from the
+# Actions tab and pass the tag to build. It does NOT run automatically on tags.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0). Must already exist.'
+        required: true
 
 permissions:
   contents: write # required to create the release
@@ -16,13 +18,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
 
-      # Pure-Rust project, so `cross` (Docker-based) cross-compiles every Pi
-      # target with no sysroot/libudev setup. Docker is preinstalled on the runner.
+      # Install cross from git: its images ship a glibc new enough for the
+      # runner's host toolchain (the published 0.2.5 images are too old and
+      # fail to run the host-side proc-macros).
       - name: Install cross
-        run: cargo install cross --locked
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
 
-      - name: Build Raspberry Pi targets
+      - name: Build Raspberry Pi targets (static musl)
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -33,10 +38,10 @@ jobs:
             cp "target/$target/release/camera-box" "dist/camera-box-$label"
             echo "::endgroup::"
           }
-          # Pi Zero W v1.1 is the primary target (ARMv6).
-          build arm-unknown-linux-gnueabihf   pi-zero-w-armv6
-          build armv7-unknown-linux-gnueabihf pi-zero-2w-armv7
-          build aarch64-unknown-linux-gnu     pi-zero-2w-arm64
+          # Static musl -> no glibc dependency, runs on any Pi OS version.
+          build arm-unknown-linux-musleabihf   pi-zero-w-armv6
+          build armv7-unknown-linux-musleabihf pi-zero-2w-armv7
+          build aarch64-unknown-linux-musl     pi-zero-2w-arm64
 
       - name: Generate checksums
         run: cd dist && sha256sum camera-box-* > SHA256SUMS
@@ -45,6 +50,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" dist/* \
-            --title "camera-box ${{ github.ref_name }}" \
+          gh release create "${{ github.event.inputs.tag }}" dist/* \
+            --title "camera-box ${{ github.event.inputs.tag }}" \
             --generate-notes

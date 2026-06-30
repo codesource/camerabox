@@ -379,9 +379,11 @@ struct V4l2Fmtdesc {
     reserved: [u32; 4],
 }
 
-// ioctl request codes (stable across Linux ABI; fit in a 32-bit c_ulong too).
-const VIDIOC_QUERYCAP: libc::c_ulong = 0x8068_5600; // _IOR('V', 0, v4l2_capability)
-const VIDIOC_ENUM_FMT: libc::c_ulong = 0xc040_5602; // _IOWR('V', 2, v4l2_fmtdesc)
+// ioctl request codes. Kept as `u32` and cast to `libc::Ioctl` at the call
+// site: that alias is `c_ulong` on glibc but `c_int` on musl, and casting the
+// 32-bit value works for both (the kernel only reads the low 32 bits).
+const VIDIOC_QUERYCAP: u32 = 0x8068_5600; // _IOR('V', 0, v4l2_capability)
+const VIDIOC_ENUM_FMT: u32 = 0xc040_5602; // _IOWR('V', 2, v4l2_fmtdesc)
 
 const V4L2_CAP_VIDEO_CAPTURE: u32 = 0x0000_0001;
 const V4L2_CAP_DEVICE_CAPS: u32 = 0x8000_0000;
@@ -417,7 +419,7 @@ fn inspect(path: &Path) -> io::Result<(bool, bool)> {
     let fd = file.as_raw_fd();
 
     let mut cap: V4l2Capability = unsafe { std::mem::zeroed() };
-    let rc = unsafe { libc::ioctl(fd, VIDIOC_QUERYCAP, &mut cap as *mut _) };
+    let rc = unsafe { libc::ioctl(fd, VIDIOC_QUERYCAP as libc::Ioctl, &mut cap as *mut _) };
     if rc < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -440,7 +442,7 @@ fn supports_mjpeg(fd: RawFd) -> bool {
         let mut desc: V4l2Fmtdesc = unsafe { std::mem::zeroed() };
         desc.index = index;
         desc.typ = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        let rc = unsafe { libc::ioctl(fd, VIDIOC_ENUM_FMT, &mut desc as *mut _) };
+        let rc = unsafe { libc::ioctl(fd, VIDIOC_ENUM_FMT as libc::Ioctl, &mut desc as *mut _) };
         if rc < 0 {
             break; // no more formats
         }
