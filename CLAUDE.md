@@ -5,11 +5,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `camera-box` is a Rust/`tokio` daemon for a Raspberry Pi (Zero W / Zero 2 W)
-USB-camera appliance. It detects USB UVC cameras and exposes each as a
-low-latency MJPEG HTTP stream, plus a web UI and JSON API. It runs as a systemd
-service on Raspberry Pi OS Lite. **Linux-only** (uses V4L2 ioctls + kernel
-netlink uevents) — it will not build or run meaningfully on Windows/macOS even though
-development may happen there.
+USB-camera appliance with a **router-style web dashboard**. It detects USB UVC
+cameras and exposes each as a low-latency MJPEG HTTP stream (via `ustreamer`),
+and the dashboard also manages Wi-Fi (AP/client, scan, profiles), system info,
+logs, hostname, and a login. Runs as a systemd service (as root) on Raspberry
+Pi OS Lite. **Linux-only** (V4L2 ioctls, netlink uevents, and it drives `iw`/
+`hostapd`/`wpa_supplicant`/`hostnamectl`) — it will not build or run on
+Windows/macOS even though development may happen there.
+
+Module map beyond camera/stream/web: `net.rs` (Wi-Fi + hostname/mDNS),
+`sys.rs` (system overview + byte counters), `logs.rs` (log ring buffer),
+`auth.rs` (hashed credentials + sessions). See the README's source-layout table.
 
 ## Core architectural constraint
 
@@ -28,10 +34,22 @@ cargo clippy --all-targets   # lint
 cargo fmt                    # format
 ```
 
-Cross-compile for the Pi with `cross` (see README): `arm-unknown-linux-gnueabihf`
-for Pi Zero W v1.1 (armv6), `aarch64-unknown-linux-gnu` for Pi Zero 2 W (64-bit).
+Releases use static musl via `cross` (Docker): `arm-unknown-linux-musleabihf`
+for Pi Zero W v1.1 (armv6), `aarch64-unknown-linux-musl` / `armv7-...` for the
+Zero 2 W. There are no tests yet; `cargo test` is a no-op.
 
-There are no tests yet; `cargo test` is a no-op.
+**Dev workflow notes (this repo is developed on Windows):**
+
+- Build with `cross build --release --target arm-unknown-linux-musleabihf` (needs
+  Docker Desktop running). `rust-analyzer`/IDE diagnostics evaluate against the
+  *Windows* target, so `libc::ioctl`, `OsStrExt`, `custom_flags`, etc. show as
+  false "not found" errors — ignore them; the musl cross build is the truth.
+- Deploy/test on the Pi (SSH alias `camera-box`): `scp` the binary, then run it
+  as a transient unit — `systemctl stop camera-box; systemd-run --unit=camera-box-test
+  --collect /tmp/camera-box-test` — and revert with `systemctl start camera-box`.
+- `axum::Handler` requires `Send` futures: never put `.await` inside a `tracing`
+  macro's field value (it holds a non-`Send` `Arguments` across the await) — bind
+  the awaited value first.
 
 ## Architecture (the parts that span files)
 
