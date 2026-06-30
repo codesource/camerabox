@@ -571,7 +571,7 @@ var IC={
 function ic(n,sz){ return '<svg class="ic" width="'+(sz||18)+'" height="'+(sz||18)+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(IC[n]||'')+'</svg>'; }
 
 // ===== helpers =====
-var page='dashboard', camView='grid', netPrev=null;
+var page='dashboard', netPrev=null, sysAdvOpen=false;
 var S={status:null,system:null,network:null};
 var L={q:'',level:'',auto:true,lines:[],built:false};
 function el(id){return document.getElementById(id);}
@@ -586,8 +586,8 @@ function camName(c){var n=c.name||'USB Camera';n=n.replace(/\s*\([0-9a-f]{4}:[0-
 function netInfo(){var n=S.network||{interfaces:[]};var cl=n.interfaces.filter(function(i){return i.mode==='client'&&i.ip;})[0];var ap=n.interfaces.filter(function(i){return i.mode==='ap';})[0];return{client:cl,ap:ap,online:!!cl};}
 
 // ===== top nav =====
-var TABS=[['dashboard','Dashboard'],['cameras','Cameras'],['network','Network'],['system','System'],['logs','Logs'],['settings','Settings']];
-el('tabs').innerHTML=TABS.map(function(t){return '<button data-p="'+t[0]+'" onclick="go(\''+t[0]+'\')">'+ic(t[0],18)+t[1]+'</button>';}).join('');
+var TABS=[['dashboard','Dashboard','dashboard'],['cameras','Cameras','cameras'],['network','Network','wifi'],['system','System','system'],['logs','Logs','logs'],['settings','Settings','settings']];
+el('tabs').innerHTML=TABS.map(function(t){return '<button data-p="'+t[0]+'" onclick="go(\''+t[0]+'\')">'+ic(t[2],18)+t[1]+'</button>';}).join('');
 el('help').innerHTML=ic('help',18); el('logoutbtn').innerHTML=ic('logout',18);
 function go(p){ page=p;
   document.querySelectorAll('.tabs button').forEach(function(b){b.classList.toggle('active',b.dataset.p===p);});
@@ -641,14 +641,12 @@ function renderDashboard(){
 // ===== Cameras =====
 function loadCameras(){ getJSON('/api/status').then(function(s){S.status=s;renderCameras();}).catch(function(){}); }
 function emptyState(icon,title,desc,action,act){ return '<div class="card" style="margin-top:18px"><div class="empty"><div class="ic-circle ic-blue">'+ic(icon,28)+'</div><div style="font-size:18px;font-weight:700;color:var(--txt)">'+esc(title)+'</div><div style="margin:8px 0 18px">'+esc(desc)+'</div>'+(action?'<button class="btn primary" onclick="qaDo(\''+act+'\')">'+ic('plus',18)+esc(action)+'</button>':'')+'</div></div>'; }
-function setCamView(v){camView=v;renderCameras();}
 function renderCameras(){
  var cams=(S.status&&S.status.cameras)||[];
  var h='<div class="row" style="justify-content:space-between"><div><h1 class="title">Cameras</h1><p class="subtitle" style="margin:0">'+(cams.length?cams.length+' camera'+(cams.length>1?'s':'')+' connected':'No cameras yet')+'</p></div>'+
-   '<div class="row"><div class="seg"><button class="'+(camView==='grid'?'active':'')+'" onclick="setCamView(\'grid\')">'+ic('grid',16)+'</button><button class="'+(camView==='list'?'active':'')+'" onclick="setCamView(\'list\')">'+ic('list',16)+'</button></div>'+
-   '<button class="btn primary" onclick="qaDo(\'addcam\')">'+ic('plus',18)+'Add camera</button></div></div>';
+   '<div class="row"><button class="btn primary" onclick="qaDo(\'addcam\')">'+ic('plus',18)+'Add camera</button></div></div>';
  if(!cams.length){ el('p-cameras').innerHTML=h+emptyState('cameras','No cameras yet','Plug a USB camera into the device and it will appear here automatically.','Add camera','addcam'); return; }
- h+='<div class="grid '+(camView==='grid'?'cols-auto':'')+'" style="margin-top:18px">'+cams.map(camCard).join('')+'</div>';
+ h+='<div class="grid cols-auto" style="margin-top:18px">'+cams.map(camCard).join('')+'</div>';
  el('p-cameras').innerHTML=h;
 }
 function camCard(c){
@@ -701,7 +699,7 @@ function renderNetwork(){
 }
 function netActionCard(it){
  var ap=it.primary&&it.ap_capable;
- return '<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0;font-size:16px">'+(it.primary?'Wi-Fi setup':'Adapter '+esc(it.name))+'</h2>'+
+ return '<div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><h2 style="margin:0;font-size:16px">'+(it.primary?'Wi-Fi setup':'Adapter '+esc(it.name))+'</h2>'+
   '<div class="row"><button class="btn sm scanbtn" onclick="doScan(this,\''+esc(it.name)+'\')">'+ic('search',16)+'Scan</button>'+(ap?'<button class="btn sm" onclick="doHotspot(this,\''+esc(it.name)+'\')">'+ic('wifi',16)+'Start hotspot</button>':'')+'</div></div>'+
   '<div class="netlist"></div>'+
   '<label>Network name (SSID)</label><input class="ssid"><label>Password</label><input class="pass" type="password">'+
@@ -742,7 +740,7 @@ function renderSystem(){
  if(netPrev){var dt=(now-netPrev.t)/1000||1;bw='<table style="width:100%;font-size:14px"><tr style="color:var(--muted);text-align:left"><th style="padding:6px 0">Interface</th><th style="text-align:right">Down</th><th style="text-align:right">Up</th></tr>';(s.net||[]).forEach(function(nw){var p=netPrev.map[nw.iface];var rx=p?Math.max(0,(nw.rx_bytes-p.rx)/dt):0,tx=p?Math.max(0,(nw.tx_bytes-p.tx)/dt):0;bw+='<tr><td style="padding:6px 0">'+esc(nw.iface)+'</td><td style="text-align:right">'+fmtBytes(rx)+'/s</td><td style="text-align:right">'+fmtBytes(tx)+'/s</td></tr>';});bw+='</table>';}else bw='<div class="muted">measuring…</div>';
  var m={};(s.net||[]).forEach(function(nw){m[nw.iface]={rx:nw.rx_bytes,tx:nw.tx_bytes};});netPrev={t:now,map:m};
  h+='<h2 class="sec">Network activity</h2><div class="card">'+bw+'</div>';
- h+='<details class="expander card" style="margin-top:18px"><summary>'+ic('chevron',16)+'Advanced details</summary><div class="kvs">'+
+ h+='<details class="expander card" style="margin-top:18px" ontoggle="sysAdvOpen=this.open"'+(sysAdvOpen?' open':'')+'><summary>'+ic('chevron',16)+'Advanced details</summary><div class="kvs">'+
    '<div class="k">Model</div><div class="v">'+esc(s.model)+'</div><div class="k">Firmware</div><div class="v">camera-box '+esc(s.version)+'</div>'+
    '<div class="k">Hostname</div><div class="v">'+esc((S.status&&S.status.hostname)||'')+'</div><div class="k">Local time</div><div class="v">'+esc(s.local_time)+'</div>'+
    '<div class="k">System uptime</div><div class="v">'+fmtUptime(s.uptime||0)+'</div><div class="k">CPU</div><div class="v">'+cpu+'%</div>'+
@@ -787,7 +785,6 @@ function renderSettings(){
   '<label>Username</label><input id="au" placeholder="admin"><label>New password</label><input id="ap" type="password"><div class="row" style="margin-top:14px"><button class="btn primary" onclick="savePassword()">Update password</button></div></div>';
  h+='<div class="card"><div class="row" style="gap:12px;margin-bottom:4px"><div class="ic-circle ic-purple" style="width:38px;height:38px;border-radius:11px">'+ic('help',18)+'</div><h2 style="margin:0;font-size:16px">About</h2></div>'+
   '<div class="kvs"><div class="k">Device</div><div class="v">'+esc(sy.model||'')+'</div><div class="k">Firmware</div><div class="v">camera-box '+esc(sy.version||'')+'</div><div class="k">Uptime</div><div class="v">'+fmtUptime(sy.uptime||0)+'</div></div></div>';
- h+='<div class="card"><div class="row" style="gap:12px;margin-bottom:4px"><div class="ic-circle ic-orange" style="width:38px;height:38px;border-radius:11px">'+ic('logout',18)+'</div><h2 style="margin:0;font-size:16px">Session</h2></div><div class="muted">Sign out of this device.</div><div class="row" style="margin-top:14px"><button class="btn" onclick="logout()">'+ic('logout',16)+'Log out</button></div></div>';
  h+='</div>';
  el('p-settings').innerHTML=h;
 }
@@ -795,11 +792,16 @@ function saveHostname(){api('POST','/api/hostname',{name:el('hn').value}).then(f
 function savePassword(){var u=el('au').value,p=el('ap').value;api('POST','/api/account',{username:u||undefined,password:p}).then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});}).then(function(x){toast(x.ok?'Password updated.':((x.d&&x.d.error)||'Failed'),!x.ok);if(x.ok)el('ap').value='';});}
 
 // ===== poll =====
-function poll(){
- getJSON('/api/status').then(function(s){ el('hostlabel').textContent=s.hostname||'camera-box'; }).catch(function(){});
- if(page==='dashboard')loadDashboard(); else if(page==='system')loadSystem(); else if(page==='logs')loadLogs();
+var tickN=0;
+function poll(){ tickN++;
+ if(page==='system') loadSystem();              // refresh System every 1s
+ if(tickN%5===0){                                // everything else every 5s
+   getJSON('/api/status').then(function(s){ el('hostlabel').textContent=s.hostname||'camera-box'; }).catch(function(){});
+   if(page==='dashboard')loadDashboard(); else if(page==='logs')loadLogs();
+ }
 }
-go('dashboard'); setInterval(poll,5000);
+getJSON('/api/status').then(function(s){ el('hostlabel').textContent=s.hostname||'camera-box'; }).catch(function(){});
+go('dashboard'); setInterval(poll,1000);
 </script>
 </body>
 </html>
