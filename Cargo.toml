@@ -17,9 +17,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 libc = "0.2"
 sha2 = "0.10"
-# HTTP client for proxying a protected camera's MJPEG stream (adds the
-# per-camera Basic Auth so the dashboard can show it same-origin). http only.
-reqwest = { version = "0.12", default-features = false, features = ["stream"] }
 anyhow = "1"
 
 # Optimise for a small, fast binary on the Pi Zero (limited flash + RAM).
