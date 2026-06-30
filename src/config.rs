@@ -17,7 +17,8 @@ pub struct Config {
     pub base_stream_port: u16,
     /// Port for the status web UI / API.
     pub web_port: u16,
-    /// Static AP IP, used to build the stream URLs shown to clients.
+    /// Fallback host for stream/UI URLs when a request has no `Host` header
+    /// (normally the address the client connected to is used instead).
     pub device_ip: String,
     /// Path to the `ustreamer` binary.
     pub ustreamer_path: String,

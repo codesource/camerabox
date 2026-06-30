@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use axum::{extract::State, response::Html, routing::get, Json, Router};
+use axum::{extract::State, http::HeaderMap, response::Html, routing::get, Json, Router};
 use serde::Serialize;
 
 use crate::camera::AppState;
@@ -45,7 +45,11 @@ pub struct CameraStatus {
 }
 
 /// Snapshot the shared state into a serialisable status response.
-async fn build_status(state: &AppState) -> StatusResponse {
+///
+/// `host` is the address the client used to reach us (from the request `Host`
+/// header), so the reported IP and stream URLs match the actual connection
+/// rather than a hardcoded config value.
+async fn build_status(state: &AppState, host: &str) -> StatusResponse {
     let slots = state.slots.read().await;
     let mut cameras = Vec::new();
     for (idx, slot) in slots.iter().enumerate() {
@@ -55,7 +59,7 @@ async fn build_status(state: &AppState) -> StatusResponse {
                 slot: idx,
                 device_path: s.device.path.display().to_string(),
                 name: s.device.name.clone(),
-                stream_url: format!("http://{}:{}/stream", state.config.device_ip, s.port),
+                stream_url: format!("http://{}:{}/stream", host, s.port),
                 port: s.port,
                 running: rt.running,
                 pid: rt.pid,
@@ -65,9 +69,34 @@ async fn build_status(state: &AppState) -> StatusResponse {
 
     StatusResponse {
         hostname: state.hostname.clone(),
-        ip_address: state.config.device_ip.clone(),
+        ip_address: host.to_string(),
         uptime: state.started.elapsed().as_secs(),
         cameras,
+    }
+}
+
+/// Determine the host the client connected to, from the `Host` header,
+/// falling back to the configured `device_ip` when it is absent.
+fn request_host(headers: &HeaderMap, fallback: &str) -> String {
+    headers
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(host_without_port)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+/// Strip a trailing `:port` from a `Host` value (streams use their own ports).
+fn host_without_port(host: &str) -> String {
+    // Bracketed IPv6 literal, e.g. `[::1]:80` -> `[::1]`.
+    if let Some(rest) = host.strip_prefix('[') {
+        if let Some(end) = rest.find(']') {
+            return format!("[{}]", &rest[..end]);
+        }
+    }
+    match host.rsplit_once(':') {
+        Some((h, _port)) if !h.is_empty() => h.to_string(),
+        _ => host.to_string(),
     }
 }
 
@@ -75,12 +104,14 @@ async fn build_status(state: &AppState) -> StatusResponse {
 // Handlers
 // ---------------------------------------------------------------------------
 
-async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
-    Json(build_status(&state).await)
+async fn status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<StatusResponse> {
+    let host = request_host(&headers, &state.config.device_ip);
+    Json(build_status(&state, &host).await)
 }
 
-async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
-    Html(render_index(&build_status(&state).await))
+async fn index(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Html<String> {
+    let host = request_host(&headers, &state.config.device_ip);
+    Html(render_index(&build_status(&state, &host).await))
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 [package]
 name = "camera-box"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "USB UVC camera appliance daemon for Raspberry Pi: detects cameras and exposes low-latency MJPEG streams via ustreamer."
 license = "MIT"

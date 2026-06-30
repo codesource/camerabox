@@ -391,8 +391,9 @@ const V4L2_BUF_TYPE_VIDEO_CAPTURE: u32 = 1;
 /// fourcc 'M''J''P''G'
 const V4L2_PIX_FMT_MJPEG: u32 = 0x4750_4a4d;
 
-/// Turn a `/dev/videoN` path into a [`CameraDevice`] iff it is a real capture
-/// device. Metadata-only nodes (no `V4L2_CAP_VIDEO_CAPTURE`) yield `None`.
+/// Turn a `/dev/videoN` path into a [`CameraDevice`] iff it is a USB video
+/// capture device. Non-USB nodes (e.g. the Pi's bcm2835 ISP/codec) and
+/// metadata-only nodes yield `None`.
 fn evaluate_path(path: &Path, devname: &[u8]) -> Option<CameraDevice> {
     match inspect(path) {
         Ok((true, mjpeg)) => Some(CameraDevice {
@@ -400,7 +401,7 @@ fn evaluate_path(path: &Path, devname: &[u8]) -> Option<CameraDevice> {
             name: read_card_name(devname),
             mjpeg,
         }),
-        Ok((false, _)) => None, // metadata-only or non-capture node
+        Ok((false, _)) => None, // non-USB, metadata-only, or non-capture node
         Err(e) => {
             // Frequently a transient hotplug race, or a node we can't open.
             warn!(path = %path.display(), error = %e, "could not probe video device");
@@ -432,8 +433,13 @@ fn inspect(path: &Path) -> io::Result<(bool, bool)> {
     };
 
     let is_capture = caps & V4L2_CAP_VIDEO_CAPTURE != 0;
-    let mjpeg = is_capture && supports_mjpeg(fd);
-    Ok((is_capture, mjpeg))
+    // Only manage USB cameras. V4L2 reports the bus in `bus_info`: USB UVC
+    // devices read `usb-...`, while the Pi's on-board blocks read
+    // `platform:bcm2835-isp`, `platform:bcm2835-codec`, etc. — exclude those.
+    let is_usb = cap.bus_info.starts_with(b"usb");
+    let usable = is_capture && is_usb;
+    let mjpeg = usable && supports_mjpeg(fd);
+    Ok((usable, mjpeg))
 }
 
 /// Enumerate capture formats and report whether MJPEG is offered.
