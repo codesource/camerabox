@@ -40,6 +40,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/network/profile/add", post(profile_add))
         .route("/api/network/profile/remove", post(profile_remove))
         .route("/api/network/profile/connect", post(profile_connect))
+        .route("/api/system", get(system_info))
+        .route("/api/logs", get(logs))
         .merge(update::router())
         .with_state(state.clone());
 
@@ -276,6 +278,18 @@ fn default_true() -> bool {
 
 async fn profile_connect(Json(r): Json<ProfileConnectReq>) -> Response {
     net_result(net::connect_profile(&r.iface, &r.name, r.dhcp).await)
+}
+
+// ---------------------------------------------------------------------------
+// System overview + logs
+// ---------------------------------------------------------------------------
+
+async fn system_info() -> Json<crate::sys::SystemInfo> {
+    Json(crate::sys::info().await)
+}
+
+async fn logs() -> Json<serde_json::Value> {
+    Json(json!({ "lines": crate::logs::snapshot() }))
 }
 
 // ---------------------------------------------------------------------------

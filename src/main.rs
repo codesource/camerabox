@@ -6,8 +6,10 @@
 
 mod camera;
 mod config;
+mod logs;
 mod net;
 mod stream;
+mod sys;
 mod update;
 mod web;
 
@@ -59,12 +61,14 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Structured logging to stdout so systemd/journald captures everything.
-/// Honour `RUST_LOG` when set, otherwise default to `info`.
+/// Structured logging to stdout (for systemd/journald) plus an in-memory ring
+/// buffer feeding the web UI's Logs tab. Honour `RUST_LOG`, else default `info`.
 fn init_tracing() {
+    use tracing_subscriber::prelude::*;
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(false)
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer().with_target(false))
+        .with(logs::init())
         .init();
 }
