@@ -150,6 +150,12 @@ fn build_command(config: &Config, device: &CameraDevice, port: u16, settings: &S
         cmd.arg("--encoder=CPU");
     }
 
+    // Optional per-camera HTTP Basic Auth on the stream.
+    if let Some(user) = settings.user.as_deref().filter(|u| !u.is_empty()) {
+        cmd.arg(format!("--user={user}"));
+        cmd.arg(format!("--passwd={}", settings.password.as_deref().unwrap_or("")));
+    }
+
     // Inherit stdio so ustreamer's own logs reach journald alongside ours.
     cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
     cmd.kill_on_drop(true);

@@ -48,6 +48,9 @@ pub struct StreamRuntime {
 pub struct StreamSettings {
     pub resolution: String,
     pub fps: u32,
+    /// Optional HTTP Basic Auth on this camera's MJPEG stream.
+    pub user: Option<String>,
+    pub password: Option<String>,
 }
 
 /// One supported capture mode: a resolution and the frame rates it offers.
@@ -331,15 +334,15 @@ async fn handle_add(state: &Arc<AppState>, device: CameraDevice) {
         let p = state.persist.lock().await;
         p.cameras.get(&device.id).cloned()
     };
-    let (enabled, resolution, fps) = match persisted {
-        // Previously-seen camera: resume its saved enabled/resolution/fps.
-        Some(p) => (p.enabled, p.resolution, p.fps),
+    let (enabled, resolution, fps, user, password) = match persisted {
+        // Previously-seen camera: resume its saved settings + stream auth.
+        Some(p) => (p.enabled, p.resolution, p.fps, p.stream_user, p.stream_password),
         // New, unknown camera: start OFF. The user enables it (choosing a
         // resolution/fps) from the web UI. `initial_settings` only seeds the
         // pre-selected mode in the dropdown; it does not start a stream.
         None => {
             let (res, fps) = initial_settings(&device, &state.config);
-            (false, res, fps)
+            (false, res, fps, None, None)
         }
     };
 
@@ -359,7 +362,7 @@ async fn handle_add(state: &Arc<AppState>, device: CameraDevice) {
         port: None,
         cancel: None,
         restart: Arc::new(Notify::new()),
-        settings: Arc::new(Mutex::new(StreamSettings { resolution, fps })),
+        settings: Arc::new(Mutex::new(StreamSettings { resolution, fps, user, password })),
         runtime: Arc::new(Mutex::new(StreamRuntime::default())),
     });
     cams.sort_by_key(|c| video_index(&c.device.path));
@@ -455,6 +458,42 @@ pub async fn set_mode(
     Ok(())
 }
 
+/// Set (or clear) per-camera HTTP Basic Auth on the MJPEG stream. An empty
+/// username disables it. Restarts the stream if running.
+pub async fn set_stream_auth(
+    state: &Arc<AppState>,
+    id: &str,
+    user: Option<String>,
+    password: Option<String>,
+) -> Result<(), ControlError> {
+    let snapshot;
+    {
+        let mut cams = state.cameras.write().await;
+        let Some(cam) = cams.iter_mut().find(|c| c.device.id == id) else {
+            return Err(ControlError::NotFound);
+        };
+        let user = user.filter(|s| !s.is_empty());
+        let password = if user.is_some() {
+            password.filter(|s| !s.is_empty())
+        } else {
+            None
+        };
+        let protected = user.is_some();
+        {
+            let mut s = cam.settings.lock().await;
+            s.user = user;
+            s.password = password;
+        }
+        if cam.is_streaming() {
+            cam.restart.notify_one();
+        }
+        info!(id, protected, "camera stream auth changed");
+        snapshot = snapshot_persist(&cams).await;
+    }
+    persist_snapshot(state, snapshot).await;
+    Ok(())
+}
+
 /// Start enabled cameras that aren't streaming yet, up to the port pool size.
 fn reconcile(config: &Arc<Config>, cams: &mut [ManagedCamera]) {
     let mut used: Vec<u16> = cams.iter().filter_map(|c| c.port).collect();
@@ -475,13 +514,20 @@ fn first_free_port(config: &Arc<Config>, used: &[u16]) -> Option<u16> {
         .find(|p| !used.contains(p))
 }
 
-/// Build the persistence snapshot (id, enabled, resolution, fps) for all
-/// cameras. Async so it can read each camera's settings lock.
-async fn snapshot_persist(cams: &[ManagedCamera]) -> Vec<(String, bool, String, u32)> {
+/// Per-camera persistence snapshot. Async so it can read each settings lock.
+type PersistRow = (String, bool, String, u32, Option<String>, Option<String>);
+async fn snapshot_persist(cams: &[ManagedCamera]) -> Vec<PersistRow> {
     let mut out = Vec::with_capacity(cams.len());
     for c in cams {
         let s = c.settings.lock().await;
-        out.push((c.device.id.clone(), c.enabled, s.resolution.clone(), s.fps));
+        out.push((
+            c.device.id.clone(),
+            c.enabled,
+            s.resolution.clone(),
+            s.fps,
+            s.user.clone(),
+            s.password.clone(),
+        ));
     }
     out
 }
@@ -502,15 +548,17 @@ fn start_stream(config: &Arc<Config>, cam: &mut ManagedCamera, port: u16) {
     );
 }
 
-async fn persist_snapshot(state: &Arc<AppState>, snapshot: Vec<(String, bool, String, u32)>) {
+async fn persist_snapshot(state: &Arc<AppState>, snapshot: Vec<PersistRow>) {
     let mut p = state.persist.lock().await;
-    for (id, enabled, resolution, fps) in snapshot {
+    for (id, enabled, resolution, fps, stream_user, stream_password) in snapshot {
         p.cameras.insert(
             id,
             CameraPersist {
                 enabled,
                 resolution,
                 fps,
+                stream_user,
+                stream_password,
             },
         );
     }

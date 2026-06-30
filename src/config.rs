@@ -78,6 +78,11 @@ pub struct CameraPersist {
     pub enabled: bool,
     pub resolution: String,
     pub fps: u32,
+    /// Optional per-camera HTTP Basic Auth on the MJPEG stream.
+    #[serde(default)]
+    pub stream_user: Option<String>,
+    #[serde(default)]
+    pub stream_password: Option<String>,
 }
 
 /// On-disk state, keyed by a stable per-camera id (V4L2 `bus_info`).

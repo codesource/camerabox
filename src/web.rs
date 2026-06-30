@@ -28,6 +28,8 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/login", get(login_page))
+        .route("/favicon.svg", get(favicon))
+        .route("/favicon.ico", get(favicon))
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/account", post(set_account))
@@ -35,6 +37,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/cameras/:id/enable", post(enable_camera))
         .route("/api/cameras/:id/disable", post(disable_camera))
         .route("/api/cameras/:id/mode", post(set_camera_mode))
+        .route("/api/cameras/:id/auth", post(set_camera_auth))
         .route("/api/network", get(network_status))
         .route("/api/network/scan", post(network_scan))
         .route("/api/network/hotspot", post(network_hotspot))
@@ -58,7 +61,7 @@ pub fn router(state: Arc<AppState>) -> Router {
 /// Unauthenticated API calls get 401; pages redirect to `/login`.
 async fn require_session(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
-    if path == "/login" || path == "/api/login" {
+    if path == "/login" || path == "/api/login" || path.starts_with("/favicon") {
         return next.run(req).await;
     }
     let authed = cookie_value(req.headers(), "session")
@@ -132,6 +135,12 @@ async fn login_page() -> Html<&'static str> {
     Html(LOGIN_HTML)
 }
 
+async fn favicon() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "image/svg+xml")], FAVICON)
+}
+
+const FAVICON: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#2563eb"/><g fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="11" width="13" height="11" rx="2.5"/><path d="M22 14l5-3v11l-5-3z"/></g></svg>"##;
+
 /// Extract a named cookie value from the request headers.
 fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
@@ -174,6 +183,10 @@ pub struct CameraStatus {
     pub resolution: String,
     pub fps: u32,
     pub modes: Vec<CameraMode>,
+    /// Stream protected by HTTP Basic Auth?
+    pub protected: bool,
+    /// Stream auth username (password is never exposed).
+    pub stream_user: Option<String>,
 }
 
 async fn build_status(state: &AppState, host: &str) -> StatusResponse {
@@ -196,6 +209,8 @@ async fn build_status(state: &AppState, host: &str) -> StatusResponse {
             resolution: settings.resolution.clone(),
             fps: settings.fps,
             modes: c.device.modes.clone(),
+            protected: settings.user.is_some(),
+            stream_user: settings.user.clone(),
         });
     }
 
@@ -262,6 +277,22 @@ async fn set_camera_mode(
     Json(req): Json<ModeRequest>,
 ) -> Response {
     map_result(camera::set_mode(&state, &id, &req.resolution, req.fps).await)
+}
+
+#[derive(Deserialize)]
+struct StreamAuthRequest {
+    #[serde(default)]
+    user: Option<String>,
+    #[serde(default)]
+    password: Option<String>,
+}
+
+async fn set_camera_auth(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<StreamAuthRequest>,
+) -> Response {
+    map_result(camera::set_stream_auth(&state, &id, req.user, req.password).await)
 }
 
 fn map_result(result: Result<(), ControlError>) -> Response {
@@ -380,6 +411,8 @@ const LOGIN_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>camera-box — Sign in</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="alternate icon" href="/favicon.ico">
 <style>
 :root{--primary:#2563eb;--txt:#111827;--muted:#6b7280;--border:#e5e7eb}
 *{box-sizing:border-box}
@@ -438,6 +471,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>camera-box</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="alternate icon" href="/favicon.ico">
 <style>
 :root{--bg:#f5f7fb;--card:#fff;--primary:#2563eb;--success:#16a34a;--warn:#f59e0b;--danger:#dc2626;
  --txt:#111827;--muted:#6b7280;--border:#e5e7eb;
@@ -603,7 +638,7 @@ var LANG={
   model:"Model",firmware:"Firmware",hostname:"Hostname",local_time:"Local time",system_uptime:"System uptime",cpu:"CPU",disk:"Disk",
   logs_sub:"Recent activity from your device.",search_logs:"Search logs",all_levels:"All levels",autoscroll:"Auto-scroll",onword:"On",offword:"Off",download:"Download",no_log_lines:"No log lines.",
   settings_sub:"Manage your device.",general:"General",reachable_as:"Reachable as {x}.local",device_name:"Device name",save:"Save",security:"Security",username:"Username",new_password:"New password",update_password:"Update password",about:"About",uptime:"Uptime",
-  name_saved:"Device name saved.",password_updated:"Password updated."},
+  name_saved:"Device name saved.",password_updated:"Password updated.",stream_protection:"Stream protection",protected_w:"Protected",auth_user_ph:"username (blank = off)",auth_saved:"Stream protection updated."},
  fr:{nav_dashboard:"Tableau de bord",nav_cameras:"Caméras",nav_network:"Réseau",nav_system:"Système",nav_logs:"Journaux",nav_settings:"Réglages",help:"Aide",logout:"Se déconnecter",help_tip:"Branchez des caméras USB et configurez le Wi-Fi dans l'onglet Réseau.",
   welcome:"Bienvenue",all_good:"Tout fonctionne bien. Votre camera-box fonctionne normalement.",needs_sub:"Quelques points nécessitent votre attention.",
   internet:"Internet",wifi:"Wi-Fi",cameras:"Caméras",device_health:"État de l'appareil",connected:"Connecté",hotspot_mode:"Mode point d'accès",offline:"Hors ligne",not_connected:"Non connecté",
@@ -623,7 +658,7 @@ var LANG={
   model:"Modèle",firmware:"Micrologiciel",hostname:"Nom d'hôte",local_time:"Heure locale",system_uptime:"Temps de fonctionnement",cpu:"Processeur",disk:"Disque",
   logs_sub:"Activité récente de votre appareil.",search_logs:"Rechercher dans les journaux",all_levels:"Tous les niveaux",autoscroll:"Défilement auto",onword:"Activé",offword:"Désactivé",download:"Télécharger",no_log_lines:"Aucune ligne de journal.",
   settings_sub:"Gérez votre appareil.",general:"Général",reachable_as:"Accessible via {x}.local",device_name:"Nom de l'appareil",save:"Enregistrer",security:"Sécurité",username:"Nom d'utilisateur",new_password:"Nouveau mot de passe",update_password:"Mettre à jour",about:"À propos",uptime:"Disponibilité",
-  name_saved:"Nom de l'appareil enregistré.",password_updated:"Mot de passe mis à jour."},
+  name_saved:"Nom de l'appareil enregistré.",password_updated:"Mot de passe mis à jour.",stream_protection:"Protection du flux",protected_w:"Protégé",auth_user_ph:"utilisateur (vide = désactivé)",auth_saved:"Protection du flux mise à jour."},
  de:{nav_dashboard:"Übersicht",nav_cameras:"Kameras",nav_network:"Netzwerk",nav_system:"System",nav_logs:"Protokolle",nav_settings:"Einstellungen",help:"Hilfe",logout:"Abmelden",help_tip:"Schließen Sie USB-Kameras an und richten Sie WLAN im Tab Netzwerk ein.",
   welcome:"Willkommen zu Hause",all_good:"Alles in Ordnung. Ihre camera-box läuft normal.",needs_sub:"Einige Dinge erfordern Ihre Aufmerksamkeit.",
   internet:"Internet",wifi:"WLAN",cameras:"Kameras",device_health:"Gerätezustand",connected:"Verbunden",hotspot_mode:"Hotspot-Modus",offline:"Offline",not_connected:"Nicht verbunden",
@@ -643,7 +678,7 @@ var LANG={
   model:"Modell",firmware:"Firmware",hostname:"Hostname",local_time:"Ortszeit",system_uptime:"Systemlaufzeit",cpu:"CPU",disk:"Festplatte",
   logs_sub:"Letzte Aktivität Ihres Geräts.",search_logs:"Protokolle durchsuchen",all_levels:"Alle Stufen",autoscroll:"Auto-Scroll",onword:"Ein",offword:"Aus",download:"Herunterladen",no_log_lines:"Keine Protokollzeilen.",
   settings_sub:"Verwalten Sie Ihr Gerät.",general:"Allgemein",reachable_as:"Erreichbar als {x}.local",device_name:"Gerätename",save:"Speichern",security:"Sicherheit",username:"Benutzername",new_password:"Neues Passwort",update_password:"Passwort aktualisieren",about:"Über",uptime:"Laufzeit",
-  name_saved:"Gerätename gespeichert.",password_updated:"Passwort aktualisiert."},
+  name_saved:"Gerätename gespeichert.",password_updated:"Passwort aktualisiert.",stream_protection:"Stream-Schutz",protected_w:"Geschützt",auth_user_ph:"Benutzer (leer = aus)",auth_saved:"Stream-Schutz aktualisiert."},
  it:{nav_dashboard:"Dashboard",nav_cameras:"Telecamere",nav_network:"Rete",nav_system:"Sistema",nav_logs:"Registri",nav_settings:"Impostazioni",help:"Aiuto",logout:"Esci",help_tip:"Collega telecamere USB e configura il Wi-Fi nella scheda Rete.",
   welcome:"Bentornato",all_good:"Tutto a posto. La tua camera-box funziona normalmente.",needs_sub:"Alcune cose richiedono la tua attenzione.",
   internet:"Internet",wifi:"Wi-Fi",cameras:"Telecamere",device_health:"Stato del dispositivo",connected:"Connesso",hotspot_mode:"Modalità hotspot",offline:"Offline",not_connected:"Non connesso",
@@ -663,7 +698,7 @@ var LANG={
   model:"Modello",firmware:"Firmware",hostname:"Nome host",local_time:"Ora locale",system_uptime:"Tempo di attività",cpu:"CPU",disk:"Disco",
   logs_sub:"Attività recente del dispositivo.",search_logs:"Cerca nei registri",all_levels:"Tutti i livelli",autoscroll:"Scorrimento auto",onword:"Attivo",offword:"Disattivo",download:"Scarica",no_log_lines:"Nessuna riga di registro.",
   settings_sub:"Gestisci il tuo dispositivo.",general:"Generale",reachable_as:"Raggiungibile come {x}.local",device_name:"Nome dispositivo",save:"Salva",security:"Sicurezza",username:"Nome utente",new_password:"Nuova password",update_password:"Aggiorna password",about:"Informazioni",uptime:"Tempo attività",
-  name_saved:"Nome del dispositivo salvato.",password_updated:"Password aggiornata."}
+  name_saved:"Nome del dispositivo salvato.",password_updated:"Password aggiornata.",stream_protection:"Protezione flusso",protected_w:"Protetto",auth_user_ph:"utente (vuoto = off)",auth_saved:"Protezione flusso aggiornata."}
 };
 var lang; try{lang=localStorage.getItem('cb_lang');}catch(e){} if(!lang||!LANG[lang]){var nv=(navigator.language||'en').slice(0,2).toLowerCase();lang=LANG[nv]?nv:'en';}
 function t(k){var d=LANG[lang]||LANG.en;return (k in d)?d[k]:(k in LANG.en?LANG.en[k]:k);}
@@ -753,13 +788,14 @@ function renderCameras(){
 }
 function camCard(c){
  var pill=!c.enabled?'<span class="pill gray">'+t('off')+'</span>':c.running?'<span class="pill green"><span class="dot"></span>'+t('live')+'</span>':'<span class="pill orange">'+t('starting')+'</span>';
- var thumb=(c.running&&c.stream_url)?'<img src="'+esc(c.stream_url)+'" style="width:100%;height:100%;object-fit:cover" onerror="this.replaceWith(document.createTextNode(\'\'))">':ic('cameras',34);
+ var thumb=(c.running&&c.stream_url&&!c.protected)?'<img src="'+esc(c.stream_url)+'" style="width:100%;height:100%;object-fit:cover" onerror="this.replaceWith(document.createTextNode(\'\'))">':ic('cameras',34);
  var q='';
  if(c.modes&&c.modes.length){ c.modes.forEach(function(m){var r=m.width+'x'+m.height;m.fps.forEach(function(f){var v=r+'@'+f;q+='<option value="'+v+'"'+((r===c.resolution&&f===c.fps)?' selected':'')+'>'+r+' · '+f+' fps</option>';});}); }
  var quality=c.modes&&c.modes.length?'<select onchange="camMode(this,\''+esc(c.id)+'\')">'+q+'</select>':'<div class="muted">'+esc(c.resolution)+' · '+c.fps+' fps</div>';
+ var lock=c.protected?' <span class="pill gray" style="font-size:10px;padding:2px 7px">🔒 '+t('protected_w')+'</span>':'';
  return '<div class="card cam-card hov">'+
   '<div class="thumb">'+thumb+'<div class="live">'+pill+'</div></div>'+
-  '<div class="row" style="justify-content:space-between;margin-top:14px;gap:10px"><div><div style="font-weight:700;font-size:15px">'+esc(camName(c))+'</div><div class="muted" style="font-size:13px">'+(c.running?(c.resolution+' · '+c.fps+' fps'):t('camera_w'))+'</div></div>'+
+  '<div class="row" style="justify-content:space-between;margin-top:14px;gap:10px"><div><div style="font-weight:700;font-size:15px">'+esc(camName(c))+lock+'</div><div class="muted" style="font-size:13px">'+(c.running?(c.resolution+' · '+c.fps+' fps'):t('camera_w'))+'</div></div>'+
    '<button class="toggle '+(c.enabled?'on':'')+'" onclick="camToggle(this,\''+esc(c.id)+'\','+(!c.enabled)+')"></button></div>'+
   '<label style="margin:14px 0 6px">'+t('quality')+'</label>'+quality+
   '<div class="row" style="margin-top:14px">'+(c.running&&c.stream_url?'<a class="btn primary sm" href="'+esc(c.stream_url)+'" target="_blank">'+ic('play',16)+t('preview')+'</a>':'<button class="btn sm" disabled>'+ic('play',16)+t('preview')+'</button>')+'</div>'+
@@ -768,8 +804,12 @@ function camCard(c){
    '<div class="k">'+t('stream')+'</div><div class="v">'+t('video_stream')+(c.mjpeg?' ('+t('passthrough')+')':'')+'</div>'+
    '<div class="k">'+t('port')+'</div><div class="v">'+(c.port||'—')+'</div>'+
    '<div class="k">'+t('process')+'</div><div class="v">'+(c.pid||'—')+'</div>'+
-   '<div class="k">'+t('usb_id')+'</div><div class="v">'+esc(c.id)+'</div></div></details></div>';
+   '<div class="k">'+t('usb_id')+'</div><div class="v">'+esc(c.id)+'</div></div>'+
+   '<div style="margin-top:12px"><label style="margin:0 0 6px">'+t('stream_protection')+'</label>'+
+   '<div class="row"><input class="su" placeholder="'+t('auth_user_ph')+'" value="'+esc(c.stream_user||'')+'" style="flex:1;min-width:90px"><input class="sp" type="password" placeholder="'+t('password')+'" style="flex:1;min-width:90px"><button class="btn sm" onclick="camAuth(this,\''+esc(c.id)+'\')">'+t('save')+'</button></div></div>'+
+   '</details></div>';
 }
+function camAuth(btn,id){var c=btn.closest('.card');var u=c.querySelector('.su').value,p=c.querySelector('.sp').value;api('POST','/api/cameras/'+encodeURIComponent(id)+'/auth',{user:u||undefined,password:p||undefined}).then(function(){toast(t('auth_saved'));loadCameras();}).catch(function(){toast(t('action_failed'),1);});}
 function camMode(sel,id){var v=sel.value.split('@');api('POST','/api/cameras/'+encodeURIComponent(id)+'/mode',{resolution:v[0],fps:parseInt(v[1],10)}).then(function(){toast(t('quality_updated'));loadCameras();});}
 function camToggle(btn,id,on){ btn.classList.toggle('on'); var card=btn.closest('.card'); var sel=card?card.querySelector('select'):null;
  var u='/api/cameras/'+encodeURIComponent(id),p;
