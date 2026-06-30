@@ -137,9 +137,11 @@ fn build_command(config: &Config, device: &CameraDevice, port: u16, settings: &S
         .arg("--host=0.0.0.0")
         .arg(format!("--port={port}"))
         .arg(format!("--resolution={}", settings.resolution))
-        .arg(format!("--desired-fps={}", settings.fps))
-        // Skip identical frames to save bandwidth on the hotspot link.
-        .arg("--drop-same-frames=30");
+        .arg(format!("--desired-fps={}", settings.fps));
+    // NB: deliberately *not* using `--drop-same-frames`. It suppresses frames
+    // identical to the previous one, which makes a static scene collapse to
+    // ~1-2 fps (and looks like a broken stream) even though capture is at the
+    // full rate. We favour a smooth, constant fps over the bandwidth saving.
 
     if device.mjpeg {
         // Camera already emits MJPEG: NOOP forwards frames untouched — the
