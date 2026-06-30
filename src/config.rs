@@ -30,10 +30,6 @@ pub struct Config {
     pub resolution: String,
     /// Default frames per second.
     pub fps: u32,
-    /// Optional HTTP Basic Auth user for the web UI / API.
-    pub auth_user: Option<String>,
-    /// Optional HTTP Basic Auth password for the web UI / API.
-    pub auth_password: Option<String>,
 }
 
 impl Default for Config {
@@ -46,8 +42,6 @@ impl Default for Config {
             ustreamer_path: "/usr/bin/ustreamer".to_string(),
             resolution: "1280x720".to_string(),
             fps: 30,
-            auth_user: None,
-            auth_password: None,
         }
     }
 }
@@ -70,14 +64,6 @@ impl Config {
                 info!(path = %path.display(), "no config file found; using defaults");
                 Config::default()
             }
-        }
-    }
-
-    /// Whether Basic Auth is configured (both user and password present).
-    pub fn basic_auth(&self) -> Option<(&str, &str)> {
-        match (&self.auth_user, &self.auth_password) {
-            (Some(u), Some(p)) if !u.is_empty() => Some((u, p)),
-            _ => None,
         }
     }
 }

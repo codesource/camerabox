@@ -16,7 +16,7 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 libc = "0.2"
-base64 = "0.22"
+sha2 = "0.10"
 anyhow = "1"
 
 # Optimise for a small, fast binary on the Pi Zero (limited flash + RAM).

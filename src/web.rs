@@ -12,12 +12,10 @@ use axum::{
     extract::{Path, Request, State},
     http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -27,8 +25,12 @@ use crate::update;
 
 /// Build the complete application router, with Basic Auth if configured.
 pub fn router(state: Arc<AppState>) -> Router {
-    let routes = Router::new()
+    Router::new()
         .route("/", get(index))
+        .route("/login", get(login_page))
+        .route("/api/login", post(login))
+        .route("/api/logout", post(logout))
+        .route("/api/account", post(set_account))
         .route("/api/status", get(status))
         .route("/api/cameras/:id/enable", post(enable_camera))
         .route("/api/cameras/:id/disable", post(disable_camera))
@@ -44,36 +46,104 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/logs", get(logs))
         .route("/api/hostname", post(set_hostname))
         .merge(update::router())
-        .with_state(state.clone());
+        .layer(middleware::from_fn_with_state(state.clone(), require_session))
+        .with_state(state)
+}
 
-    match state.config.basic_auth() {
-        Some((user, pass)) => {
-            let expected = Arc::new(format!("Basic {}", STANDARD.encode(format!("{user}:{pass}"))));
-            routes.layer(middleware::from_fn(move |req: Request, next: Next| {
-                let expected = expected.clone();
-                async move { basic_auth(&expected, req, next).await }
-            }))
-        }
-        None => routes,
+// ---------------------------------------------------------------------------
+// Authentication (form login + session cookie)
+// ---------------------------------------------------------------------------
+
+/// Gate every route on a valid session, except the login page + login API.
+/// Unauthenticated API calls get 401; pages redirect to `/login`.
+async fn require_session(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
+    let path = req.uri().path();
+    if path == "/login" || path == "/api/login" {
+        return next.run(req).await;
+    }
+    let authed = cookie_value(req.headers(), "session")
+        .map(|t| state.auth.validate(&t))
+        .unwrap_or(false);
+    if authed {
+        next.run(req).await
+    } else if path.starts_with("/api") {
+        (StatusCode::UNAUTHORIZED, Json(json!({ "error": "unauthorized" }))).into_response()
+    } else {
+        Redirect::to("/login").into_response()
     }
 }
 
-/// HTTP Basic Auth gate. Compares the full `Authorization` header value.
-async fn basic_auth(expected: &str, req: Request, next: Next) -> Response {
-    let provided = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
-    if provided == Some(expected) {
-        next.run(req).await
-    } else {
-        (
-            StatusCode::UNAUTHORIZED,
-            [(header::WWW_AUTHENTICATE, "Basic realm=\"camera-box\"")],
-            "401 Unauthorized",
+#[derive(Deserialize)]
+struct LoginReq {
+    username: String,
+    password: String,
+}
+
+async fn login(State(state): State<Arc<AppState>>, Json(r): Json<LoginReq>) -> Response {
+    match state.auth.login(&r.username, &r.password) {
+        Some(token) => (
+            StatusCode::OK,
+            [(
+                header::SET_COOKIE,
+                format!("session={token}; HttpOnly; Path=/; Max-Age=43200; SameSite=Lax"),
+            )],
+            Json(json!({ "status": "ok" })),
         )
-            .into_response()
+            .into_response(),
+        None => (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "invalid username or password" })),
+        )
+            .into_response(),
     }
+}
+
+async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if let Some(token) = cookie_value(&headers, "session") {
+        state.auth.logout(&token);
+    }
+    (
+        StatusCode::OK,
+        [(
+            header::SET_COOKIE,
+            "session=; HttpOnly; Path=/; Max-Age=0".to_string(),
+        )],
+        Json(json!({ "status": "ok" })),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct AccountReq {
+    #[serde(default)]
+    username: Option<String>,
+    password: String,
+}
+
+async fn set_account(State(state): State<Arc<AppState>>, Json(r): Json<AccountReq>) -> Response {
+    let user = r.username.unwrap_or_else(|| state.auth.username());
+    match state.auth.set_credentials(&user, &r.password) {
+        Ok(()) => (StatusCode::OK, Json(json!({ "status": "ok" }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn login_page() -> Html<&'static str> {
+    Html(LOGIN_HTML)
+}
+
+/// Extract a named cookie value from the request headers.
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    for part in raw.split(';') {
+        let part = part.trim();
+        if let Some(rest) = part.strip_prefix(name) {
+            if let Some(val) = rest.strip_prefix('=') {
+                return Some(val.to_string());
+            }
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +375,41 @@ async fn set_hostname(Json(r): Json<HostnameReq>) -> Response {
 // ---------------------------------------------------------------------------
 // Static page: shell + CSS + the JS that renders/updates from /api/status.
 // ---------------------------------------------------------------------------
+
+const LOGIN_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>camera-box — sign in</title>
+<style>
+body{font-family:system-ui,Segoe UI,sans-serif;margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#0f1115;color:#e6e6e6}
+.box{background:#171a21;border:1px solid #2a2f3a;border-radius:10px;padding:28px;width:280px}
+h1{margin:0 0 4px;font-size:18px}.sub{color:#9aa4b2;font-size:13px;margin-bottom:16px}
+label{display:block;font-size:12px;color:#9aa4b2;margin:10px 0 4px}
+input{width:100%;box-sizing:border-box;background:#1c2029;color:#e6e6e6;border:1px solid #2a2f3a;border-radius:6px;padding:9px 10px;font-size:14px}
+button{margin-top:16px;width:100%;background:#1f6feb;color:#fff;border:0;border-radius:6px;padding:10px;font-size:14px;cursor:pointer}
+button:hover{background:#388bfd}
+.err{color:#ff7a7a;font-size:13px;margin-top:10px;min-height:16px}
+</style></head>
+<body>
+<form class="box" onsubmit="return signin(event)">
+<h1>camera-box</h1><div class="sub">Sign in to manage your device</div>
+<label>Username</label><input id="u" autocomplete="username" autofocus>
+<label>Password</label><input id="p" type="password" autocomplete="current-password">
+<button type="submit">Sign in</button>
+<div class="err" id="err"></div>
+</form>
+<script>
+function signin(e){
+  e.preventDefault();
+  fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})})
+   .then(function(r){ if(r.ok){ location.href='/'; } else { document.getElementById('err').textContent='Invalid username or password'; } })
+   .catch(function(){ document.getElementById('err').textContent='Network error'; });
+  return false;
+}
+</script>
+</body></html>
+"#;
 
 const INDEX_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en">

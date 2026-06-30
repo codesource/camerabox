@@ -4,6 +4,7 @@
 //! (the actual MJPEG streaming is delegated entirely to `ustreamer`), and
 //! serves a status web UI + JSON API. See `README.md` for the big picture.
 
+mod auth;
 mod camera;
 mod config;
 mod logs;
@@ -29,19 +30,39 @@ use config::{Config, PersistState};
 const CONFIG_PATH: &str = "/etc/camera-box/config.toml";
 /// Where per-camera choices (enabled / resolution / fps) are persisted.
 const STATE_PATH: &str = "/var/lib/camera-box/state.toml";
+/// Where the web-UI credentials are stored.
+const AUTH_PATH: &str = "/var/lib/camera-box/auth.toml";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // CLI: `camera-box reset-password [user] [pass]` resets the login and exits.
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("reset-password") {
+        let user = args.get(2).cloned().unwrap_or_else(|| "admin".to_string());
+        let pass = args.get(3).cloned().unwrap_or_else(|| "password".to_string());
+        let auth = auth::Auth::load(std::path::PathBuf::from(AUTH_PATH));
+        match auth.set_credentials(&user, &pass) {
+            Ok(()) => println!("Password reset. Log in as '{user}'."),
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
+
     init_tracing();
 
     let config = Config::load(Path::new(CONFIG_PATH));
     info!(?config, "starting camera-box");
 
     let persist = PersistState::load(Path::new(STATE_PATH));
+    let auth = auth::Auth::load(std::path::PathBuf::from(AUTH_PATH));
     let state = Arc::new(AppState::new(
         config,
         persist,
         std::path::PathBuf::from(STATE_PATH),
+        auth,
     ));
 
     // Ensure AP (dnsmasq) clients can resolve <hostname>.local in hotspot mode.

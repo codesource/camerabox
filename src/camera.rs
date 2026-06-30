@@ -101,16 +101,24 @@ pub struct AppState {
     pub cameras: RwLock<Vec<ManagedCamera>>,
     /// Persisted per-camera choices, mirrored to `state_path`.
     pub persist: Mutex<PersistState>,
+    /// Credentials + sessions for the web UI.
+    pub auth: crate::auth::Auth,
 }
 
 impl AppState {
-    pub fn new(config: Config, persist: PersistState, state_path: PathBuf) -> Self {
+    pub fn new(
+        config: Config,
+        persist: PersistState,
+        state_path: PathBuf,
+        auth: crate::auth::Auth,
+    ) -> Self {
         Self {
             config: Arc::new(config),
             started: Instant::now(),
             state_path,
             cameras: RwLock::new(Vec::new()),
             persist: Mutex::new(persist),
+            auth,
         }
     }
 }

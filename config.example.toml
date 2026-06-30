@@ -31,8 +31,8 @@ ustreamer_path   = "/usr/bin/ustreamer"
 resolution       = "1280x720"
 fps              = 30
 
-# Optional HTTP Basic Auth for the web UI and API (port 80). Leave both unset
-# to disable. NOTE: this does not cover the ustreamer MJPEG streams (ports
-# 8080+), which ustreamer serves without auth.
-# auth_user     = "admin"
-# auth_password = "change-me"
+# Web UI login: the username/password are NOT in this file. They default to
+# admin / password on first run and are changed from the web UI (stored hashed
+# in /var/lib/camera-box/auth.toml). Forgot it?  camera-box reset-password
+# NOTE: the login does not cover the ustreamer MJPEG streams (ports 8080+),
+# which ustreamer serves without auth.
