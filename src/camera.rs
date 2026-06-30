@@ -81,6 +81,9 @@ pub struct ManagedCamera {
     pub enabled: bool,
     /// Assigned stream port while streaming.
     pub port: Option<u16>,
+    /// Sticky preferred port: kept (and persisted) while enabled so the camera
+    /// reuses the same port across restarts; cleared when disabled.
+    pub desired_port: Option<u16>,
     /// Present while a supervisor task is running for this camera.
     pub cancel: Option<CancellationToken>,
     /// Notify the supervisor to restart with updated settings.
@@ -334,15 +337,22 @@ async fn handle_add(state: &Arc<AppState>, device: CameraDevice) {
         let p = state.persist.lock().await;
         p.cameras.get(&device.id).cloned()
     };
-    let (enabled, resolution, fps, user, password) = match persisted {
-        // Previously-seen camera: resume its saved settings + stream auth.
-        Some(p) => (p.enabled, p.resolution, p.fps, p.stream_user, p.stream_password),
+    let (enabled, resolution, fps, user, password, desired_port) = match persisted {
+        // Previously-seen camera: resume its saved settings, auth, and port.
+        Some(p) => (
+            p.enabled,
+            p.resolution,
+            p.fps,
+            p.stream_user,
+            p.stream_password,
+            p.port,
+        ),
         // New, unknown camera: start OFF. The user enables it (choosing a
         // resolution/fps) from the web UI. `initial_settings` only seeds the
         // pre-selected mode in the dropdown; it does not start a stream.
         None => {
             let (res, fps) = initial_settings(&device, &state.config);
-            (false, res, fps, None, None)
+            (false, res, fps, None, None, None)
         }
     };
 
@@ -360,6 +370,7 @@ async fn handle_add(state: &Arc<AppState>, device: CameraDevice) {
         device,
         enabled,
         port: None,
+        desired_port,
         cancel: None,
         restart: Arc::new(Notify::new()),
         settings: Arc::new(Mutex::new(StreamSettings { resolution, fps, user, password })),
@@ -406,7 +417,9 @@ pub async fn set_enabled(
             if let Some(token) = cam.cancel.take() {
                 token.cancel();
             }
+            // Disabling frees the port (current + sticky reservation).
             cam.port = None;
+            cam.desired_port = None;
             *cam.runtime.lock().await = StreamRuntime::default();
         }
         info!(id, enabled, "camera enable state changed");
@@ -495,9 +508,25 @@ pub async fn set_stream_auth(
 }
 
 /// Start enabled cameras that aren't streaming yet, up to the port pool size.
+///
+/// Two passes so ports are *sticky*: first reclaim each camera's remembered
+/// (persisted) port when it's still free, then assign the lowest free port to
+/// any remaining cameras.
 fn reconcile(config: &Arc<Config>, cams: &mut [ManagedCamera]) {
     let mut used: Vec<u16> = cams.iter().filter_map(|c| c.port).collect();
 
+    // Pass 1: honour the sticky port each enabled camera already owns.
+    for cam in cams.iter_mut() {
+        if cam.enabled && !cam.is_streaming() {
+            if let Some(p) = cam.desired_port {
+                if in_pool(config, p) && !used.contains(&p) {
+                    start_stream(config, cam, p);
+                    used.push(p);
+                }
+            }
+        }
+    }
+    // Pass 2: give the lowest free port to anyone still waiting.
     for cam in cams.iter_mut() {
         if cam.enabled && !cam.is_streaming() {
             if let Some(port) = first_free_port(config, &used) {
@@ -508,6 +537,11 @@ fn reconcile(config: &Arc<Config>, cams: &mut [ManagedCamera]) {
     }
 }
 
+fn in_pool(config: &Config, port: u16) -> bool {
+    port >= config.base_stream_port
+        && port < config.base_stream_port + config.max_cameras as u16
+}
+
 fn first_free_port(config: &Arc<Config>, used: &[u16]) -> Option<u16> {
     (0..config.max_cameras as u16)
         .map(|i| config.base_stream_port + i)
@@ -515,7 +549,15 @@ fn first_free_port(config: &Arc<Config>, used: &[u16]) -> Option<u16> {
 }
 
 /// Per-camera persistence snapshot. Async so it can read each settings lock.
-type PersistRow = (String, bool, String, u32, Option<String>, Option<String>);
+type PersistRow = (
+    String,
+    bool,
+    String,
+    u32,
+    Option<String>,
+    Option<String>,
+    Option<u16>,
+);
 async fn snapshot_persist(cams: &[ManagedCamera]) -> Vec<PersistRow> {
     let mut out = Vec::with_capacity(cams.len());
     for c in cams {
@@ -527,6 +569,7 @@ async fn snapshot_persist(cams: &[ManagedCamera]) -> Vec<PersistRow> {
             s.fps,
             s.user.clone(),
             s.password.clone(),
+            c.desired_port,
         ));
     }
     out
@@ -535,6 +578,7 @@ async fn snapshot_persist(cams: &[ManagedCamera]) -> Vec<PersistRow> {
 fn start_stream(config: &Arc<Config>, cam: &mut ManagedCamera, port: u16) {
     let token = CancellationToken::new();
     cam.port = Some(port);
+    cam.desired_port = Some(port); // remember it for next time
     cam.cancel = Some(token.clone());
     info!(path = %cam.device.path.display(), port, "starting stream");
     crate::stream::spawn(
@@ -550,7 +594,7 @@ fn start_stream(config: &Arc<Config>, cam: &mut ManagedCamera, port: u16) {
 
 async fn persist_snapshot(state: &Arc<AppState>, snapshot: Vec<PersistRow>) {
     let mut p = state.persist.lock().await;
-    for (id, enabled, resolution, fps, stream_user, stream_password) in snapshot {
+    for (id, enabled, resolution, fps, stream_user, stream_password, port) in snapshot {
         p.cameras.insert(
             id,
             CameraPersist {
@@ -559,6 +603,7 @@ async fn persist_snapshot(state: &Arc<AppState>, snapshot: Vec<PersistRow>) {
                 fps,
                 stream_user,
                 stream_password,
+                port,
             },
         );
     }

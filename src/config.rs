@@ -78,6 +78,9 @@ pub struct CameraPersist {
     pub enabled: bool,
     pub resolution: String,
     pub fps: u32,
+    /// Sticky stream port, reused on the next activation/restart while enabled.
+    #[serde(default)]
+    pub port: Option<u16>,
     /// Optional per-camera HTTP Basic Auth on the MJPEG stream.
     #[serde(default)]
     pub stream_user: Option<String>,
