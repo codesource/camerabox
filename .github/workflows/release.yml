@@ -1,14 +1,13 @@
 name: release
 
-# Manual-only: releases are normally cut by hand with `gh release create`.
-# This workflow is here as an on-demand alternative — trigger it from the
-# Actions tab and pass the tag to build. It does NOT run automatically on tags.
+# Push a version tag (e.g. `v0.1.0`) to build the Raspberry Pi binaries and
+# publish them as a GitHub Release. The build runs with the repo's built-in
+# GITHUB_TOKEN, so it can create the release even when the pusher only has
+# git (deploy-key) access.
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to release (e.g. v0.1.0). Must already exist.'
-        required: true
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write # required to create the release
@@ -18,8 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.tag }}
 
       # Install cross from git: its images ship a glibc new enough for the
       # runner's host toolchain (the published 0.2.5 images are too old and
@@ -46,10 +43,35 @@ jobs:
       - name: Generate checksums
         run: cd dist && sha256sum camera-box-* > SHA256SUMS
 
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          USB UVC camera appliance daemon for Raspberry Pi.
+
+          ## Downloads (prebuilt, statically linked — no glibc dependency)
+
+          | Board | Asset |
+          |-------|-------|
+          | Pi Zero W v1.1 (ARMv6) | `camera-box-pi-zero-w-armv6` |
+          | Pi Zero 2 W (32-bit OS) | `camera-box-pi-zero-2w-armv7` |
+          | Pi Zero 2 W (64-bit OS) | `camera-box-pi-zero-2w-arm64` |
+
+          ## Install (Pi Zero W v1.1)
+
+          ```sh
+          sudo git clone https://github.com/codesource/camerabox.git /opt/camera-box
+          wget https://github.com/codesource/camerabox/releases/latest/download/camera-box-pi-zero-w-armv6 -O /tmp/camera-box
+          sudo bash /opt/camera-box/scripts/install.sh /tmp/camera-box
+          ```
+
+          Verify downloads against `SHA256SUMS`.
+          EOF
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.event.inputs.tag }}" dist/* \
-            --title "camera-box ${{ github.event.inputs.tag }}" \
-            --generate-notes
+          gh release create "${{ github.ref_name }}" \
+            dist/camera-box-* dist/SHA256SUMS \
+            --title "camera-box ${{ github.ref_name }}" \
+            --notes-file release-notes.md
