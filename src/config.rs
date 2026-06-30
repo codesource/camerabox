@@ -1,19 +1,23 @@
-//! Configuration loading from `/etc/camera-box/config.toml`.
+//! Configuration (`/etc/camera-box/config.toml`) and persisted runtime state
+//! (`/var/lib/camera-box/state.toml`).
 //!
-//! Every field has a sane default (via `#[serde(default)]` + [`Default`]), so a
-//! missing file or a partially-specified file both work without error.
+//! Config has sane defaults so a missing/partial file still works. Persisted
+//! state remembers, per physical camera, whether it is enabled and at what
+//! resolution/fps, so choices survive a reboot or replug.
 
+use std::collections::BTreeMap;
+use std::io;
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Maximum number of cameras to manage (slots cam0..camN-1).
+    /// Maximum number of cameras streaming at once (also the port pool size).
     pub max_cameras: usize,
-    /// Port for the first camera; subsequent cameras use base + slot index.
+    /// Port for the first stream; further streams use base + offset.
     pub base_stream_port: u16,
     /// Port for the status web UI / API.
     pub web_port: u16,
@@ -22,10 +26,14 @@ pub struct Config {
     pub device_ip: String,
     /// Path to the `ustreamer` binary.
     pub ustreamer_path: String,
-    /// Requested capture resolution (e.g. `1280x720`).
+    /// Default capture resolution (e.g. `1280x720`).
     pub resolution: String,
-    /// Requested frames per second.
+    /// Default frames per second.
     pub fps: u32,
+    /// Optional HTTP Basic Auth user for the web UI / API.
+    pub auth_user: Option<String>,
+    /// Optional HTTP Basic Auth password for the web UI / API.
+    pub auth_password: Option<String>,
 }
 
 impl Default for Config {
@@ -38,6 +46,8 @@ impl Default for Config {
             ustreamer_path: "/usr/bin/ustreamer".to_string(),
             resolution: "1280x720".to_string(),
             fps: 30,
+            auth_user: None,
+            auth_password: None,
         }
     }
 }
@@ -61,5 +71,59 @@ impl Config {
                 Config::default()
             }
         }
+    }
+
+    /// Whether Basic Auth is configured (both user and password present).
+    pub fn basic_auth(&self) -> Option<(&str, &str)> {
+        match (&self.auth_user, &self.auth_password) {
+            (Some(u), Some(p)) if !u.is_empty() => Some((u, p)),
+            _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Persisted per-camera state
+// ---------------------------------------------------------------------------
+
+/// What we remember about one physical camera between runs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CameraPersist {
+    pub enabled: bool,
+    pub resolution: String,
+    pub fps: u32,
+}
+
+/// On-disk state, keyed by a stable per-camera id (V4L2 `bus_info`).
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct PersistState {
+    #[serde(default)]
+    pub cameras: BTreeMap<String, CameraPersist>,
+}
+
+impl PersistState {
+    pub fn load(path: &Path) -> Self {
+        match std::fs::read_to_string(path) {
+            Ok(s) => match toml::from_str(&s) {
+                Ok(state) => {
+                    info!(path = %path.display(), "loaded persisted state");
+                    state
+                }
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "invalid state file; ignoring");
+                    Self::default()
+                }
+            },
+            Err(_) => Self::default(),
+        }
+    }
+
+    pub fn save(&self, path: &Path) -> io::Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let body = toml::to_string_pretty(self)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        std::fs::write(path, body)
     }
 }

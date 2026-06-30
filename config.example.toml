@@ -5,7 +5,9 @@
 # This file is OPTIONAL. If it is missing, or any key is omitted, the built-in
 # defaults shown below are used.
 
-# Maximum number of cameras to manage (slots cam0 .. camN-1).
+# Maximum number of cameras streaming at once (also the stream port pool size).
+# All connected USB cameras are listed in the web UI; the first this many are
+# auto-enabled, and you can toggle which ones stream from there.
 max_cameras      = 2
 
 # Port of the first camera stream; cam1 uses base+1, etc.
@@ -14,14 +16,23 @@ base_stream_port = 8080
 # Port for the status web UI and JSON API.
 web_port         = 80
 
-# Static AP IP of this device. Used to build the stream URLs shown to clients.
+# Fallback host for stream/UI links, used ONLY if an HTTP request arrives
+# without a Host header (rare). Normally the address you used to reach the
+# device is detected automatically, so you usually don't need this.
 device_ip        = "192.168.4.1"
 
 # Path to the ustreamer binary.
 ustreamer_path   = "/usr/bin/ustreamer"
 
-# Requested capture resolution.
+# Default pre-selected resolution/fps for a newly-seen camera (just the
+# dropdown's initial choice). New cameras start OFF; you enable them and pick a
+# mode in the web UI. Per-camera choices are then saved to
+# /var/lib/camera-box/state.toml and restored on the next boot.
 resolution       = "1280x720"
-
-# Requested frames per second.
 fps              = 30
+
+# Optional HTTP Basic Auth for the web UI and API (port 80). Leave both unset
+# to disable. NOTE: this does not cover the ustreamer MJPEG streams (ports
+# 8080+), which ustreamer serves without auth.
+# auth_user     = "admin"
+# auth_password = "change-me"

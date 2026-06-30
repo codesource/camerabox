@@ -20,10 +20,12 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use camera::AppState;
-use config::Config;
+use config::{Config, PersistState};
 
 /// Default location of the optional configuration file.
 const CONFIG_PATH: &str = "/etc/camera-box/config.toml";
+/// Where per-camera choices (enabled / resolution / fps) are persisted.
+const STATE_PATH: &str = "/var/lib/camera-box/state.toml";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -32,7 +34,12 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::load(Path::new(CONFIG_PATH));
     info!(?config, "starting camera-box");
 
-    let state = Arc::new(AppState::new(config));
+    let persist = PersistState::load(Path::new(STATE_PATH));
+    let state = Arc::new(AppState::new(
+        config,
+        persist,
+        std::path::PathBuf::from(STATE_PATH),
+    ));
 
     // Background task: uevent hotplug detection + ustreamer supervision.
     tokio::spawn(camera::run(state.clone()));

@@ -40,29 +40,53 @@ shares it between two halves:
 
 1. **Camera manager** (`camera::run`, background task) — does an initial scan of
    `/dev/video*`, then watches the kernel netlink uevent socket directly (pure
-   Rust, no `libudev`) via `AsyncFd` for `video4linux` add/remove events. On add
-   it probes the node and assigns it to a slot; on remove it frees the slot.
-2. **Web server** (`axum`) — reads the same `AppState` to render the UI and API.
+   Rust, no `libudev`) via `AsyncFd` for `video4linux` add/remove events.
+2. **Web server** (`axum`) — reads the same `AppState` to render the UI and API,
+   and calls `camera::set_enabled` / `set_mode` for control actions.
 
-`AppState.slots` is a `RwLock<Vec<Option<Slot>>>` of fixed length `max_cameras`.
-Index = slot number = port offset (`base_stream_port + index`). Slot assignment
-is "first free slot"; this is the source of truth for cam0/cam1 stability.
+`AppState.cameras` is a `RwLock<Vec<ManagedCamera>>` listing **all** connected
+USB cameras (ordered by `/dev/videoN`). Each `ManagedCamera` has a desired
+`enabled` flag and, while streaming, a `port` + `CancellationToken`. `reconcile`
+starts enabled-but-not-streaming cameras on the next free port from the pool
+`base_stream_port .. base_stream_port + max_cameras` — so `max_cameras` is the
+**concurrent-stream cap**, not a hard device limit.
 
-Each occupied `Slot` owns a `CancellationToken` and an
-`Arc<Mutex<StreamRuntime>>`. `stream::spawn` starts a supervisor task per camera
-that (re)launches `ustreamer`, writes liveness (`running`/`pid`) into the shared
-`StreamRuntime`, restarts on crash, and on token cancellation kills the child
-cleanly. The web layer reads `StreamRuntime` for status — supervisors are the
-only writers, the web layer only reads.
+Key behaviours:
+
+- A **newly-seen** camera (no persisted state) starts **disabled**; the user
+  enables it (and picks a resolution/fps) in the web UI. Previously-seen cameras
+  resume their persisted `enabled`/`resolution`/`fps`.
+- **Persistence**: per-camera choices are saved to `/var/lib/camera-box/state.toml`
+  keyed by the V4L2 `bus_info` (the stable `device.id`), via `PersistState` in
+  `config.rs`. `set_enabled`/`set_mode` mutate state, `reconcile`, then snapshot
+  and save.
+- `stream::spawn` runs a supervisor per streaming camera: it reads the shared
+  `Arc<Mutex<StreamSettings>>` on each (re)start, writes liveness into
+  `Arc<Mutex<StreamRuntime>>`, restarts on crash, restarts on `restart` `Notify`
+  (settings changed), and stops cleanly on `CancellationToken`. Supervisors are
+  the only writers of `StreamRuntime`; the web layer only reads.
 
 ### Device probing (`camera.rs`)
 
-Capture-capability and MJPEG detection use **raw V4L2 ioctls via `libc`** (no
-v4l crate): `VIDIOC_QUERYCAP` filters out metadata-only nodes (keep only
-`V4L2_CAP_VIDEO_CAPTURE`), `VIDIOC_ENUM_FMT` detects MJPEG so passthrough can be
-preferred. The `#[repr(C)]` structs and ioctl constants must match the kernel
-ABI exactly — if you touch them, verify struct sizes against the encoded ioctl
-numbers (the comments give the `_IOR`/`_IOWR` derivation).
+Detection uses **raw V4L2 ioctls via `libc`** (no v4l crate). `VIDIOC_QUERYCAP`
+keeps only USB capture devices: requires `V4L2_CAP_VIDEO_CAPTURE` **and**
+`bus_info` starting with `usb` (this excludes the Pi's on-board
+`platform:bcm2835-isp`/`-codec` nodes and metadata-only nodes). `VIDIOC_ENUM_FMT`
+picks the stream format (MJPEG preferred → passthrough). Frame size/interval
+ioctls (`VIDIOC_ENUM_FRAMESIZES`, `VIDIOC_ENUM_FRAMEINTERVALS`) enumerate the
+resolution/fps list shown in the UI.
+The `#[repr(C)]` structs and ioctl constants must match the kernel ABI exactly —
+verify struct sizes against the encoded ioctl numbers (comments give the
+`_IOR`/`_IOWR` derivation). ioctl request codes are `u32` cast to `libc::Ioctl`
+at the call site (it's `c_ulong` on glibc, `c_int` on musl).
+
+### Web UI (`web.rs`)
+
+The page is a static shell + vanilla JS that polls `/api/status` and updates the
+DOM **in place** (no reload), skipping a `<select>` that's focused so it never
+disrupts a selection. Control endpoints: `POST /api/cameras/:id/{enable,disable}`
+and `/mode`. Optional Basic Auth (config `auth_user`/`auth_password`) wraps all
+routes via a `from_fn` middleware; it does **not** cover the ustreamer streams.
 
 ### ustreamer invocation (`stream.rs`)
 
