@@ -185,8 +185,9 @@ pub struct CameraStatus {
     pub modes: Vec<CameraMode>,
     /// Stream protected by HTTP Basic Auth?
     pub protected: bool,
-    /// Stream auth username (password is never exposed).
+    /// Stream auth credentials (shown to the logged-in admin who set them).
     pub stream_user: Option<String>,
+    pub stream_password: Option<String>,
 }
 
 async fn build_status(state: &AppState, host: &str) -> StatusResponse {
@@ -211,6 +212,7 @@ async fn build_status(state: &AppState, host: &str) -> StatusResponse {
             modes: c.device.modes.clone(),
             protected: settings.user.is_some(),
             stream_user: settings.user.clone(),
+            stream_password: settings.password.clone(),
         });
     }
 
@@ -639,7 +641,7 @@ var LANG={
   model:"Model",firmware:"Firmware",hostname:"Hostname",local_time:"Local time",system_uptime:"System uptime",cpu:"CPU",disk:"Disk",
   logs_sub:"Recent activity from your device.",search_logs:"Search logs",all_levels:"All levels",autoscroll:"Auto-scroll",onword:"On",offword:"Off",download:"Download",no_log_lines:"No log lines.",
   settings_sub:"Manage your device.",general:"General",reachable_as:"Reachable as {x}.local",device_name:"Device name",save:"Save",security:"Security",username:"Username",new_password:"New password",update_password:"Update password",about:"About",uptime:"Uptime",
-  name_saved:"Device name saved.",password_updated:"Password updated.",stream_protection:"Stream protection",protected_w:"Protected",auth_user_ph:"username (blank = off)",auth_saved:"Stream protection updated.",copy_link:"Copy link",link_copied:"Stream link copied."},
+  name_saved:"Device name saved.",password_updated:"Password updated.",stream_protection:"Stream protection",protected_w:"Protected",auth_user_ph:"username (blank = off)",auth_saved:"Stream protection updated.",copy_link:"Copy link",link_copied:"Stream link copied.",credentials:"Login"},
  fr:{nav_dashboard:"Tableau de bord",nav_cameras:"Caméras",nav_network:"Réseau",nav_system:"Système",nav_logs:"Journaux",nav_settings:"Réglages",help:"Aide",logout:"Se déconnecter",help_tip:"Branchez des caméras USB et configurez le Wi-Fi dans l'onglet Réseau.",
   welcome:"Bienvenue",all_good:"Tout fonctionne bien. Votre camera-box fonctionne normalement.",needs_sub:"Quelques points nécessitent votre attention.",
   internet:"Internet",wifi:"Wi-Fi",cameras:"Caméras",device_health:"État de l'appareil",connected:"Connecté",hotspot_mode:"Mode point d'accès",offline:"Hors ligne",not_connected:"Non connecté",
@@ -659,7 +661,7 @@ var LANG={
   model:"Modèle",firmware:"Micrologiciel",hostname:"Nom d'hôte",local_time:"Heure locale",system_uptime:"Temps de fonctionnement",cpu:"Processeur",disk:"Disque",
   logs_sub:"Activité récente de votre appareil.",search_logs:"Rechercher dans les journaux",all_levels:"Tous les niveaux",autoscroll:"Défilement auto",onword:"Activé",offword:"Désactivé",download:"Télécharger",no_log_lines:"Aucune ligne de journal.",
   settings_sub:"Gérez votre appareil.",general:"Général",reachable_as:"Accessible via {x}.local",device_name:"Nom de l'appareil",save:"Enregistrer",security:"Sécurité",username:"Nom d'utilisateur",new_password:"Nouveau mot de passe",update_password:"Mettre à jour",about:"À propos",uptime:"Disponibilité",
-  name_saved:"Nom de l'appareil enregistré.",password_updated:"Mot de passe mis à jour.",stream_protection:"Protection du flux",protected_w:"Protégé",auth_user_ph:"utilisateur (vide = désactivé)",auth_saved:"Protection du flux mise à jour.",copy_link:"Copier le lien",link_copied:"Lien du flux copié."},
+  name_saved:"Nom de l'appareil enregistré.",password_updated:"Mot de passe mis à jour.",stream_protection:"Protection du flux",protected_w:"Protégé",auth_user_ph:"utilisateur (vide = désactivé)",auth_saved:"Protection du flux mise à jour.",copy_link:"Copier le lien",link_copied:"Lien du flux copié.",credentials:"Identifiants"},
  de:{nav_dashboard:"Übersicht",nav_cameras:"Kameras",nav_network:"Netzwerk",nav_system:"System",nav_logs:"Protokolle",nav_settings:"Einstellungen",help:"Hilfe",logout:"Abmelden",help_tip:"Schließen Sie USB-Kameras an und richten Sie WLAN im Tab Netzwerk ein.",
   welcome:"Willkommen zu Hause",all_good:"Alles in Ordnung. Ihre camera-box läuft normal.",needs_sub:"Einige Dinge erfordern Ihre Aufmerksamkeit.",
   internet:"Internet",wifi:"WLAN",cameras:"Kameras",device_health:"Gerätezustand",connected:"Verbunden",hotspot_mode:"Hotspot-Modus",offline:"Offline",not_connected:"Nicht verbunden",
@@ -679,7 +681,7 @@ var LANG={
   model:"Modell",firmware:"Firmware",hostname:"Hostname",local_time:"Ortszeit",system_uptime:"Systemlaufzeit",cpu:"CPU",disk:"Festplatte",
   logs_sub:"Letzte Aktivität Ihres Geräts.",search_logs:"Protokolle durchsuchen",all_levels:"Alle Stufen",autoscroll:"Auto-Scroll",onword:"Ein",offword:"Aus",download:"Herunterladen",no_log_lines:"Keine Protokollzeilen.",
   settings_sub:"Verwalten Sie Ihr Gerät.",general:"Allgemein",reachable_as:"Erreichbar als {x}.local",device_name:"Gerätename",save:"Speichern",security:"Sicherheit",username:"Benutzername",new_password:"Neues Passwort",update_password:"Passwort aktualisieren",about:"Über",uptime:"Laufzeit",
-  name_saved:"Gerätename gespeichert.",password_updated:"Passwort aktualisiert.",stream_protection:"Stream-Schutz",protected_w:"Geschützt",auth_user_ph:"Benutzer (leer = aus)",auth_saved:"Stream-Schutz aktualisiert.",copy_link:"Link kopieren",link_copied:"Stream-Link kopiert."},
+  name_saved:"Gerätename gespeichert.",password_updated:"Passwort aktualisiert.",stream_protection:"Stream-Schutz",protected_w:"Geschützt",auth_user_ph:"Benutzer (leer = aus)",auth_saved:"Stream-Schutz aktualisiert.",copy_link:"Link kopieren",link_copied:"Stream-Link kopiert.",credentials:"Zugangsdaten"},
  it:{nav_dashboard:"Dashboard",nav_cameras:"Telecamere",nav_network:"Rete",nav_system:"Sistema",nav_logs:"Registri",nav_settings:"Impostazioni",help:"Aiuto",logout:"Esci",help_tip:"Collega telecamere USB e configura il Wi-Fi nella scheda Rete.",
   welcome:"Bentornato",all_good:"Tutto a posto. La tua camera-box funziona normalmente.",needs_sub:"Alcune cose richiedono la tua attenzione.",
   internet:"Internet",wifi:"Wi-Fi",cameras:"Telecamere",device_health:"Stato del dispositivo",connected:"Connesso",hotspot_mode:"Modalità hotspot",offline:"Offline",not_connected:"Non connesso",
@@ -699,7 +701,7 @@ var LANG={
   model:"Modello",firmware:"Firmware",hostname:"Nome host",local_time:"Ora locale",system_uptime:"Tempo di attività",cpu:"CPU",disk:"Disco",
   logs_sub:"Attività recente del dispositivo.",search_logs:"Cerca nei registri",all_levels:"Tutti i livelli",autoscroll:"Scorrimento auto",onword:"Attivo",offword:"Disattivo",download:"Scarica",no_log_lines:"Nessuna riga di registro.",
   settings_sub:"Gestisci il tuo dispositivo.",general:"Generale",reachable_as:"Raggiungibile come {x}.local",device_name:"Nome dispositivo",save:"Salva",security:"Sicurezza",username:"Nome utente",new_password:"Nuova password",update_password:"Aggiorna password",about:"Informazioni",uptime:"Tempo attività",
-  name_saved:"Nome del dispositivo salvato.",password_updated:"Password aggiornata.",stream_protection:"Protezione flusso",protected_w:"Protetto",auth_user_ph:"utente (vuoto = off)",auth_saved:"Protezione flusso aggiornata.",copy_link:"Copia link",link_copied:"Link del flusso copiato."}
+  name_saved:"Nome del dispositivo salvato.",password_updated:"Password aggiornata.",stream_protection:"Protezione flusso",protected_w:"Protetto",auth_user_ph:"utente (vuoto = off)",auth_saved:"Protezione flusso aggiornata.",copy_link:"Copia link",link_copied:"Link del flusso copiato.",credentials:"Credenziali"}
 };
 var lang; try{lang=localStorage.getItem('cb_lang');}catch(e){} if(!lang||!LANG[lang]){var nv=(navigator.language||'en').slice(0,2).toLowerCase();lang=LANG[nv]?nv:'en';}
 function t(k){var d=LANG[lang]||LANG.en;return (k in d)?d[k]:(k in LANG.en?LANG.en[k]:k);}
@@ -800,6 +802,7 @@ function camCard(c){
    '<button class="toggle '+(c.enabled?'on':'')+'" onclick="camToggle(this,\''+esc(c.id)+'\','+(!c.enabled)+')"></button></div>'+
   '<label style="margin:14px 0 6px">'+t('quality')+'</label>'+quality+
   '<div class="row" style="margin-top:14px">'+(c.running&&c.stream_url?'<a class="btn primary sm" href="'+esc(c.stream_url)+'" target="_blank">'+ic('play',16)+t('preview')+'</a>':'<button class="btn sm" disabled>'+ic('play',16)+t('preview')+'</button>')+(c.stream_url?'<button class="btn sm" onclick="copyLink(\''+esc(c.stream_url)+'\')">'+ic('link',16)+t('copy_link')+'</button>':'')+'</div>'+
+  (c.stream_user?'<div class="kv" style="margin-top:10px">🔒 '+t('credentials')+': <code>'+esc(c.stream_user)+':'+esc(c.stream_password||'')+'</code></div>':'')+
   '<details class="expander"><summary>'+ic('chevron',16)+t('advanced')+'</summary><div class="kvs">'+
    '<div class="k">'+t('device')+'</div><div class="v">'+esc(c.device_path)+'</div>'+
    '<div class="k">'+t('stream')+'</div><div class="v">'+t('video_stream')+(c.mjpeg?' ('+t('passthrough')+')':'')+'</div>'+
