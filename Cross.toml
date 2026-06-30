@@ -1,0 +1,5 @@
+# Configuration for `cross` (https://github.com/cross-rs/cross).
+# Pi Zero W v1.1 is ARMv6 + hardfloat -> arm-unknown-linux-gnueabihf.
+# The custom image adds the target's libudev (the `udev` crate links it).
+[target.arm-unknown-linux-gnueabihf]
+dockerfile = "Dockerfile.cross"
