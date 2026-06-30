@@ -1,3 +1,6 @@
 /target
 **/*.rs.bk
 Cargo.lock.orig
+
+# build logs
+*.log

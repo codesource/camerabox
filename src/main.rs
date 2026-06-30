@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState::new(config));
 
-    // Background task: udev hotplug detection + ustreamer supervision.
+    // Background task: uevent hotplug detection + ustreamer supervision.
     tokio::spawn(camera::run(state.clone()));
 
     // Foreground task: the web UI / API.

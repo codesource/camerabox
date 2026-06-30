@@ -1,0 +1,50 @@
+name: release
+
+# Push a version tag (e.g. `v0.1.0`) to build the Raspberry Pi binaries and
+# publish them as a GitHub Release. Tag pushes authenticate with the same
+# credentials as any other push; the build itself uses the built-in token.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # required to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pure-Rust project, so `cross` (Docker-based) cross-compiles every Pi
+      # target with no sysroot/libudev setup. Docker is preinstalled on the runner.
+      - name: Install cross
+        run: cargo install cross --locked
+
+      - name: Build Raspberry Pi targets
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          build() {
+            local target="$1" label="$2"
+            echo "::group::build $label ($target)"
+            cross build --release --target "$target"
+            cp "target/$target/release/camera-box" "dist/camera-box-$label"
+            echo "::endgroup::"
+          }
+          # Pi Zero W v1.1 is the primary target (ARMv6).
+          build arm-unknown-linux-gnueabihf   pi-zero-w-armv6
+          build armv7-unknown-linux-gnueabihf pi-zero-2w-armv7
+          build aarch64-unknown-linux-gnu     pi-zero-2w-arm64
+
+      - name: Generate checksums
+        run: cd dist && sha256sum camera-box-* > SHA256SUMS
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/* \
+            --title "camera-box ${{ github.ref_name }}" \
+            --generate-notes

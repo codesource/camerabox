@@ -7,7 +7,7 @@ camera appliance. It auto-detects USB UVC cameras and exposes each one as a
 The actual video streaming is **not** done in Rust — it is delegated to
 [`ustreamer`](https://github.com/pikvm/ustreamer). The daemon only:
 
-- detects camera plug/unplug (udev),
+- detects camera plug/unplug (kernel netlink uevents),
 - assigns cameras to stable slots (`cam0`, `cam1`),
 - starts/stops/restarts one `ustreamer` process per camera,
 - serves the web UI, status API, and an update-endpoint placeholder.
@@ -23,7 +23,7 @@ The actual video streaming is **not** done in Rust — it is delegated to
 ## How it works
 
 ```
-USB camera  --udev-->  camera.rs (detect + assign slot)
+USB camera  --uevent-->  camera.rs (detect + assign slot)
                               |
                               v
                        stream.rs (spawn & supervise)
@@ -52,7 +52,7 @@ web.rs / update.rs  --HTTP-->  http://192.168.4.1/        (web UI)
 |------------------|-----------------------------------------------------------|
 | `src/main.rs`    | Startup: logging, config, spawn manager, run web server.  |
 | `src/config.rs`  | Load `/etc/camera-box/config.toml` with safe defaults.    |
-| `src/camera.rs`  | Shared state, V4L2 probing, udev monitor, slot assignment.|
+| `src/camera.rs`  | Shared state, V4L2 probing, uevent monitor, assignment.   |
 | `src/stream.rs`  | Per-camera `ustreamer` supervisor (start/stop/restart).   |
 | `src/web.rs`     | Web UI + `GET /api/status`.                               |
 | `src/update.rs`  | `GET /api/version`, `POST /api/update` (placeholder).     |
@@ -67,9 +67,35 @@ sudo apt install ustreamer        # provides /usr/bin/ustreamer
 (If `ustreamer` is not packaged on your image, build it from source and set
 `ustreamer_path` in the config to wherever you installed it.)
 
-## Build
+## Install a prebuilt release (easiest)
+
+Each tagged release ships prebuilt binaries, so the Pi needs no build tools —
+just download the one for your board:
+
+| Board                   | Asset                         |
+|-------------------------|-------------------------------|
+| Pi Zero W v1.1 (ARMv6)  | `camera-box-pi-zero-w-armv6`  |
+| Pi Zero 2 W (32-bit OS) | `camera-box-pi-zero-2w-armv7` |
+| Pi Zero 2 W (64-bit OS) | `camera-box-pi-zero-2w-arm64` |
+
+```sh
+# On the Pi (example: Pi Zero W v1.1)
+sudo git clone https://github.com/codesource/camerabox.git /opt/camera-box
+wget https://github.com/codesource/camerabox/releases/latest/download/camera-box-pi-zero-w-armv6 \
+     -O /tmp/camera-box
+sudo bash /opt/camera-box/scripts/install.sh /tmp/camera-box
+```
+
+Releases are produced by `.github/workflows/release.yml` on every `v*` tag.
+To cut a release: `git tag v0.1.0 && git push origin v0.1.0`.
+
+## Build from source
 
 ### Natively on a Pi
+
+The daemon is **pure Rust** (no C library dependencies — camera hotplug is read
+straight from the kernel netlink uevent socket), so cross-compiling needs no
+custom toolchain image or sysroot.
 
 ```sh
 cargo build --release
@@ -78,17 +104,17 @@ sudo install -m 0755 target/release/camera-box /usr/local/bin/camera-box
 
 ### Cross-compiling (recommended for the Zero)
 
-Using [`cross`](https://github.com/cross-rs/cross):
+Using [`cross`](https://github.com/cross-rs/cross) — the stock images work as-is:
 
 ```sh
+# Pi Zero W v1.1 (armv6)
+cross build --release --target arm-unknown-linux-gnueabihf
+
 # Pi Zero 2 W (64-bit OS)
 cross build --release --target aarch64-unknown-linux-gnu
 
 # Pi Zero 2 W (32-bit OS) / armv7
 cross build --release --target armv7-unknown-linux-gnueabihf
-
-# Pi Zero W v1.1 (armv6)
-cross build --release --target arm-unknown-linux-gnueabihf
 ```
 
 Copy the resulting `target/<triple>/release/camera-box` to the Pi at
@@ -169,7 +195,7 @@ defaults: `max_cameras=2`, `base_stream_port=8080`, `web_port=80`,
 ## Notes & assumptions
 
 - The appliance is assumed offline; clients reach it via the Pi hotspot.
-- The daemon runs as `root` (port 80 + `/dev/video*` + udev access).
+- The daemon runs as `root` (port 80 + `/dev/video*` + netlink uevent access).
 - Binding to two capture nodes from a single physical camera is uncommon for
   UVC webcams (the second node is typically metadata-only and ignored), but if
   a camera exposes two capture interfaces it may consume two slots.

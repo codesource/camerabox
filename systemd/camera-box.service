@@ -13,8 +13,8 @@ ExecStart=/usr/local/bin/camera-box
 Restart=on-failure
 RestartSec=3
 
-# Needs root for: binding port 80, opening /dev/video* and udev netlink,
-# and spawning ustreamer.
+# Needs root for: binding port 80, opening /dev/video*, the netlink uevent
+# multicast group, and spawning ustreamer.
 User=root
 
 # Send all logs to journald (the daemon logs to stdout/stderr).

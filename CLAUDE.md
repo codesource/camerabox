@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `camera-box` is a Rust/`tokio` daemon for a Raspberry Pi (Zero W / Zero 2 W)
 USB-camera appliance. It detects USB UVC cameras and exposes each as a
 low-latency MJPEG HTTP stream, plus a web UI and JSON API. It runs as a systemd
-service on Raspberry Pi OS Lite. **Linux-only** (uses V4L2 ioctls + udev
-netlink) — it will not build or run meaningfully on Windows/macOS even though
+service on Raspberry Pi OS Lite. **Linux-only** (uses V4L2 ioctls + kernel
+netlink uevents) — it will not build or run meaningfully on Windows/macOS even though
 development may happen there.
 
 ## Core architectural constraint
@@ -38,10 +38,10 @@ There are no tests yet; `cargo test` is a no-op.
 Startup (`main.rs`) builds a single `Arc<AppState>` (defined in `camera.rs`) and
 shares it between two halves:
 
-1. **Camera manager** (`camera::run`, background task) — does an initial udev
-   scan, then watches a udev netlink monitor via `AsyncFd` for `video4linux`
-   add/remove events. On add it probes the node and assigns it to a slot; on
-   remove it frees the slot.
+1. **Camera manager** (`camera::run`, background task) — does an initial scan of
+   `/dev/video*`, then watches the kernel netlink uevent socket directly (pure
+   Rust, no `libudev`) via `AsyncFd` for `video4linux` add/remove events. On add
+   it probes the node and assigns it to a slot; on remove it frees the slot.
 2. **Web server** (`axum`) — reads the same `AppState` to render the UI and API.
 
 `AppState.slots` is a `RwLock<Vec<Option<Slot>>>` of fixed length `max_cameras`.
@@ -81,4 +81,9 @@ inherited so ustreamer logs land in journald next to ours.
 - **Modules are role-based and flat**: `main/config/camera/stream/web/update`.
   Keep new code in the matching module; `update.rs` is intentionally a
   placeholder structured so real update logic slots in behind the same routes.
-- The daemon assumes it runs as root (port 80, `/dev/video*`, udev).
+- The daemon assumes it runs as root (port 80, `/dev/video*`, and binding the
+  netlink uevent multicast group).
+- **No C/system library dependencies** — hotplug is read from the kernel netlink
+  uevent socket via raw `libc` calls, not the `udev` crate. This is deliberate:
+  it keeps cross-compilation (esp. ARMv6 Pi Zero W) free of sysroot/`libudev`
+  pain. Don't reintroduce `libudev`/`udev`-crate deps without good reason.
