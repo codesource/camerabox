@@ -285,18 +285,20 @@ pub async fn start_hotspot(iface: &str) -> NetResult<()> {
     info!(iface, "switching to hotspot (AP) mode");
 
     stop_client(iface).await;
+    // Wi-Fi can be rfkill soft-blocked (especially after a reboot); unblock it
+    // or `ip link set up` fails (exit 2) and the interface stays down.
+    sh_ok("rfkill", &["unblock", "wifi"]).await;
     sh_ok("ip", &["addr", "flush", "dev", iface]).await;
     sh_ok("ip", &["link", "set", iface, "down"]).await;
     sleep(Duration::from_secs(1)).await;
     sh_ok("ip", &["link", "set", iface, "up"]).await;
 
-    // Assign the AP IP (via the camera-box-ip unit if present, else directly).
-    if service_exists("camera-box-ip.service").await {
-        sh_ok("systemctl", &["start", "camera-box-ip"]).await;
-    } else {
-        sh_ok("ip", &["addr", "add", AP_IP_CIDR, "dev", iface]).await;
-    }
+    // Assign the AP IP directly — don't depend on the external camera-box-ip
+    // unit, which fails if the link was rfkill-blocked at boot.
+    sh_ok("ip", &["addr", "add", AP_IP_CIDR, "dev", iface]).await;
 
+    // Restart dnsmasq AFTER the address is set, or it logs "DHCP packet
+    // received on <iface> which has no address" and hands out no leases.
     sh("systemctl", &["restart", "dnsmasq"]).await?;
     sh("systemctl", &["restart", "hostapd"]).await?;
     info!(iface, "hotspot active");
@@ -412,8 +414,12 @@ async fn connect_with_conf(
     Ok(())
 }
 
-/// Stop any client session this daemon started on `iface`.
+/// Stop any client session on `iface` — including a `wpa_supplicant` started
+/// by something other than this daemon (e.g. the old `camera-box-wifi` script
+/// or the system), which would otherwise keep the interface in client mode and
+/// stop `hostapd` from bringing up the AP.
 async fn stop_client(iface: &str) {
+    // First our own (tracked via pidfile), for a clean SIGTERM.
     let pidfile = wpa_pidfile(iface);
     if let Ok(contents) = std::fs::read_to_string(&pidfile) {
         if let Ok(pid) = contents.trim().parse::<i32>() {
@@ -423,6 +429,8 @@ async fn stop_client(iface: &str) {
         }
         let _ = std::fs::remove_file(&pidfile);
     }
+    // Then any other wpa_supplicant bound to this interface.
+    sh_ok("pkill", &["-f", &format!("wpa_supplicant.*{iface}")]).await;
     sh_ok("dhclient", &["-r", iface]).await;
 }
 
@@ -567,11 +575,4 @@ pub fn write_ap_hostname_mapping(name: &str) -> NetResult<()> {
     let ap_ip = AP_IP_CIDR.split('/').next().unwrap_or("192.168.4.1");
     let body = format!("address=/{name}/{ap_ip}\naddress=/{name}.local/{ap_ip}\n");
     std::fs::write(DNSMASQ_HOST_MAP, body).map_err(|e| e.to_string())
-}
-
-async fn service_exists(unit: &str) -> bool {
-    sh("systemctl", &["list-unit-files", unit])
-        .await
-        .map(|o| o.contains(unit))
-        .unwrap_or(false)
 }
