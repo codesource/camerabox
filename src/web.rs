@@ -379,34 +379,44 @@ async fn set_hostname(Json(r): Json<HostnameReq>) -> Response {
 const LOGIN_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>camera-box — sign in</title>
+<title>camera-box — Sign in</title>
 <style>
-body{font-family:system-ui,Segoe UI,sans-serif;margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#0f1115;color:#e6e6e6}
-.box{background:#171a21;border:1px solid #2a2f3a;border-radius:10px;padding:28px;width:280px}
-h1{margin:0 0 4px;font-size:18px}.sub{color:#9aa4b2;font-size:13px;margin-bottom:16px}
-label{display:block;font-size:12px;color:#9aa4b2;margin:10px 0 4px}
-input{width:100%;box-sizing:border-box;background:#1c2029;color:#e6e6e6;border:1px solid #2a2f3a;border-radius:6px;padding:9px 10px;font-size:14px}
-button{margin-top:16px;width:100%;background:#1f6feb;color:#fff;border:0;border-radius:6px;padding:10px;font-size:14px;cursor:pointer}
-button:hover{background:#388bfd}
-.err{color:#ff7a7a;font-size:13px;margin-top:10px;min-height:16px}
+:root{--primary:#2563eb;--txt:#111827;--muted:#6b7280;--border:#e5e7eb}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f7fb;color:var(--txt);
+ font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+.card{background:#fff;border:1px solid var(--border);border-radius:22px;padding:36px 32px;width:350px;
+ box-shadow:0 12px 44px rgba(16,24,40,.10);animation:in .35s ease}
+@keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.logo{width:56px;height:56px;border-radius:17px;background:var(--primary);color:#fff;display:grid;place-items:center;margin:0 auto 18px;
+ box-shadow:0 8px 20px rgba(37,99,235,.35)}
+h1{font-size:22px;margin:0;text-align:center;letter-spacing:-.02em}
+.sub{color:var(--muted);font-size:14px;text-align:center;margin:6px 0 24px}
+label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:14px 0 6px}
+input{width:100%;height:48px;border:1px solid var(--border);border-radius:12px;padding:0 14px;font-size:15px;background:#fff;color:var(--txt)}
+input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 4px rgba(37,99,235,.14)}
+button{width:100%;height:50px;margin-top:22px;background:var(--primary);color:#fff;border:0;border-radius:14px;
+ font-size:15px;font-weight:600;cursor:pointer;transition:.15s}
+button:hover{background:#1d57d6}button:active{transform:translateY(1px)}
+.err{color:#dc2626;font-size:13px;text-align:center;margin-top:14px;min-height:16px}
 </style></head>
 <body>
-<form class="box" onsubmit="return signin(event)">
-<h1>camera-box</h1><div class="sub">Sign in to manage your device</div>
+<form class="card" onsubmit="return signin(event)">
+<div class="logo"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="3"/></svg></div>
+<h1>Welcome back</h1>
+<div class="sub">Sign in to manage your camera-box</div>
 <label>Username</label><input id="u" autocomplete="username" autofocus>
 <label>Password</label><input id="p" type="password" autocomplete="current-password">
 <button type="submit">Sign in</button>
 <div class="err" id="err"></div>
 </form>
 <script>
-function signin(e){
-  e.preventDefault();
+function signin(e){ e.preventDefault();
   fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})})
-   .then(function(r){ if(r.ok){ location.href='/'; } else { document.getElementById('err').textContent='Invalid username or password'; } })
+   .then(function(r){ if(r.ok) location.href='/'; else document.getElementById('err').textContent='Invalid username or password'; })
    .catch(function(){ document.getElementById('err').textContent='Network error'; });
-  return false;
-}
+  return false; }
 </script>
 </body></html>
 "#;
@@ -418,282 +428,378 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>camera-box</title>
 <style>
-:root{--bg:#0f1115;--panel:#171a21;--line:#2a2f3a;--muted:#9aa4b2;--txt:#e6e6e6;--accent:#1f6feb}
+:root{--bg:#f5f7fb;--card:#fff;--primary:#2563eb;--success:#16a34a;--warn:#f59e0b;--danger:#dc2626;
+ --txt:#111827;--muted:#6b7280;--border:#e5e7eb;
+ --shadow:0 1px 2px rgba(16,24,40,.04),0 4px 16px rgba(16,24,40,.06);--shadow-h:0 10px 30px rgba(16,24,40,.12)}
 *{box-sizing:border-box}
-body{font-family:system-ui,Segoe UI,sans-serif;margin:0;background:var(--bg);color:var(--txt)}
-header{background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:10px 16px;flex-wrap:wrap}
-.brand{font-weight:700;font-size:16px;letter-spacing:.5px}
-.host{color:var(--muted);font-size:13px}
-nav{display:flex;gap:4px;flex-wrap:wrap}
-nav button{background:transparent;border:0;color:var(--muted);padding:8px 12px;border-radius:6px;font-size:14px;cursor:pointer}
-nav button:hover{color:var(--txt);background:#1c2029}
-nav button.active{color:#fff;background:var(--accent)}
-.spacer{flex:1}
-.ghost{background:transparent;border:1px solid var(--line);color:var(--muted);padding:7px 12px;border-radius:6px;cursor:pointer;font-size:13px}
-.ghost:hover{color:var(--txt);border-color:var(--accent)}
-main{padding:18px}
-.tab.hidden{display:none}
-.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
-.card h2{margin:0 0 8px;font-size:15px;display:flex;align-items:center}
-.kv{color:var(--muted);font-size:13px;margin:3px 0}
-.kv b{color:var(--txt);font-weight:600}
-code{background:#1c2029;padding:2px 6px;border-radius:4px;color:#cbd5e1}
-a{color:#5cb3ff;text-decoration:none}a:hover{text-decoration:underline}
-.badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px}
-.on{background:#16331f;color:#46d369}.off{background:#3a1c1c;color:#ffb86b}.idle{background:#2a2f3a;color:#9aa4b2}
-.ctrl{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-select,button,input{background:#1c2029;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font-size:13px}
-button{cursor:pointer}button:hover{border-color:var(--accent)}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-label{font-size:12px;color:var(--muted);display:block;margin:8px 0 3px}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
-.metric{font-size:22px;font-weight:700;margin:2px 0}
-.bar{height:6px;border-radius:4px;background:#1c2029;overflow:hidden;margin-top:6px}
-.bar>i{display:block;height:100%;background:var(--accent)}
-table{border-collapse:collapse;width:100%;font-size:13px}
-th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
-th{color:var(--muted)}
-pre#logbox{background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:12px;font-size:12px;line-height:1.5;max-height:72vh;overflow:auto;white-space:pre-wrap}
-.empty{color:var(--muted);padding:24px}
-.muted{color:var(--muted);font-size:12px}
-.netlist{margin-top:8px;max-height:150px;overflow:auto;border:1px solid var(--line);border-radius:6px}
-.netlist div{padding:6px 9px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line)}
-.netlist div:hover{background:#1c2029}
-.msg{font-size:12px;min-height:15px;margin-top:6px}.msg.ok{color:#46d369}.msg.err{color:#ff7a7a}
+body{margin:0;background:var(--bg);color:var(--txt);-webkit-font-smoothing:antialiased;
+ font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--primary);text-decoration:none}
+.topbar{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+.bar-inner{max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:16px;padding:11px 22px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;letter-spacing:-.01em}
+.brand .ic{width:32px;height:32px;border-radius:10px;background:var(--primary);color:#fff;display:grid;place-items:center;box-shadow:0 6px 16px rgba(37,99,235,.3)}
+.tabs{display:flex;gap:3px;flex:1;flex-wrap:wrap}
+.tabs button{display:flex;align-items:center;gap:8px;border:0;background:transparent;color:var(--muted);font:inherit;font-size:14px;font-weight:600;padding:9px 13px;border-radius:11px;cursor:pointer;transition:.15s}
+.tabs button:hover{background:#eef2f8;color:var(--txt)}
+.tabs button.active{background:#e8effe;color:var(--primary)}
+.right{display:flex;align-items:center;gap:9px}
+.iconbtn{width:40px;height:40px;border-radius:12px;border:1px solid var(--border);background:#fff;color:var(--muted);display:grid;place-items:center;cursor:pointer;transition:.15s}
+.iconbtn:hover{color:var(--txt);box-shadow:var(--shadow)}
+.user{display:flex;align-items:center;gap:9px;padding:5px 12px 5px 5px;border:1px solid var(--border);border-radius:999px;background:#fff;font-size:13px;font-weight:600;color:var(--txt)}
+.user .av{width:28px;height:28px;border-radius:999px;background:#e8effe;color:var(--primary);display:grid;place-items:center;font-weight:700;font-size:13px}
+.wrap{max-width:1400px;margin:0 auto;padding:30px 22px 70px}
+.page{animation:fade .28s ease}
+.hidden{display:none}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.title{font-size:28px;margin:0 0 4px;letter-spacing:-.025em;font-weight:700}
+.subtitle{color:var(--muted);font-size:15px;margin:0 0 24px}
+.sec{font-size:16px;font-weight:700;margin:30px 0 14px;letter-spacing:-.01em}
+.grid{display:grid;gap:18px}
+.cols-4{grid-template-columns:repeat(4,1fr)}.cols-2{grid-template-columns:repeat(2,1fr)}
+.cols-auto{grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+@media(max-width:1150px){.cols-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.cols-4,.cols-2{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:20px;box-shadow:var(--shadow);transition:transform .18s,box-shadow .18s}
+.card.hov:hover{box-shadow:var(--shadow-h);transform:translateY(-2px)}
+.ic-circle{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;flex:0 0 auto}
+.ic-blue{background:#e8effe;color:#2563eb}.ic-green{background:#e7f6ec;color:#16a34a}.ic-purple{background:#f1ebfe;color:#7c3aed}
+.ic-orange{background:#fef3e2;color:#d97706}.ic-red{background:#fdeaea;color:#dc2626}.ic-gray{background:#eef1f5;color:#6b7280}
+.statusbig{font-size:20px;font-weight:700;margin:10px 0 4px;letter-spacing:-.01em}
+.muted{color:var(--muted);font-size:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:0 16px;border-radius:13px;border:1px solid var(--border);background:#fff;color:var(--txt);font:inherit;font-weight:600;font-size:14px;cursor:pointer;transition:.15s}
+.btn:hover{box-shadow:var(--shadow)}.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}.btn.primary:hover{background:#1d57d6}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.sm{min-height:38px;padding:0 13px;font-size:13px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn svg,.tabs svg,.iconbtn svg,.brand svg{width:18px;height:18px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:4px 11px;border-radius:999px}
+.pill.green{background:#e7f6ec;color:#15803d}.pill.gray{background:#eef1f5;color:#6b7280}.pill.orange{background:#fef3e2;color:#b45309}.pill.red{background:#fdeaea;color:#dc2626}
+.dot{width:7px;height:7px;border-radius:999px;background:currentColor;box-shadow:0 0 0 3px rgba(22,163,74,.18)}
+input,select{width:100%;min-height:44px;border:1px solid var(--border);border-radius:12px;padding:0 13px;font:inherit;font-size:14px;background:#fff;color:var(--txt)}
+input:focus,select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 4px rgba(37,99,235,.13)}
+label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:13px 0 6px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.qa{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+@media(max-width:900px){.qa{grid-template-columns:repeat(2,1fr)}}
+.qa button{display:flex;flex-direction:column;align-items:center;gap:11px;padding:20px;background:#fff;border:1px solid var(--border);border-radius:16px;cursor:pointer;transition:.18s;font:inherit;font-weight:600;font-size:14px;color:var(--txt);box-shadow:var(--shadow)}
+.qa button:hover{box-shadow:var(--shadow-h);transform:translateY(-2px)}
+.progress{height:9px;border-radius:999px;background:#eef1f5;overflow:hidden;margin-top:12px}
+.progress>i{display:block;height:100%;border-radius:999px;background:var(--primary);transition:width .5s}
+.bars-good>i{background:var(--success)}.bars-warn>i{background:var(--warn)}.bars-bad>i{background:var(--danger)}
+.expander{margin-top:16px}
+.expander>summary{cursor:pointer;color:var(--muted);font-weight:600;font-size:13px;list-style:none;display:flex;align-items:center;gap:7px;padding:9px 0;user-select:none}
+.expander>summary::-webkit-details-marker{display:none}
+.expander>summary svg{width:15px;height:15px;transition:transform .2s}
+.expander[open]>summary svg{transform:rotate(180deg)}
+.card.expander[open]{box-shadow:var(--shadow)}
+.kvs{display:grid;grid-template-columns:auto 1fr;gap:7px 16px;font-size:13px;margin-top:6px}
+.kvs .k{color:var(--muted)}.kvs .v{color:var(--txt);text-align:right;font-variant-numeric:tabular-nums;word-break:break-all}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+.seg button{border:0;background:#fff;padding:9px 12px;cursor:pointer;color:var(--muted);display:grid;place-items:center}
+.seg button.active{background:#e8effe;color:var(--primary)}
+.toggle{position:relative;width:46px;height:28px;border-radius:999px;background:#d1d5db;border:0;cursor:pointer;transition:.2s;flex:0 0 auto}
+.toggle.on{background:var(--success)}
+.toggle::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:999px;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.toggle.on::after{transform:translateX(18px)}
+.cam-card .thumb{height:158px;border-radius:14px;background:linear-gradient(135deg,#eef2f8,#dfe6f0);display:grid;place-items:center;color:#9aa7bd;position:relative;overflow:hidden}
+.cam-card .thumb .live{position:absolute;top:11px;left:11px}
+.netlist{margin-top:12px;max-height:170px;overflow:auto;border:1px solid var(--border);border-radius:12px}
+.netlist:empty{display:none}
+.netlist div{padding:9px 12px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border)}
+.netlist div:last-child{border-bottom:0}.netlist div:hover{background:#f3f6fb}
+.empty{text-align:center;padding:46px 20px;color:var(--muted)}
+.empty .ic-circle{margin:0 auto 16px;width:64px;height:64px;border-radius:20px}
+.logbox{max-height:64vh;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.7}
+.logline{display:block;padding:3px 10px;border-radius:7px;white-space:pre-wrap;word-break:break-word}
+.logline:hover{background:#f3f6fb}
+.ll-INFO{color:#2563eb}.ll-WARN{color:#b45309}.ll-ERROR{color:#dc2626}.ll-DEBUG{color:#6b7280}.ll-TRACE{color:#9ca3af}
+.toast{position:fixed;right:22px;bottom:22px;display:flex;flex-direction:column;gap:10px;z-index:60}
+.toast .t{background:#fff;border:1px solid var(--border);border-left:4px solid var(--success);border-radius:13px;padding:13px 16px;box-shadow:var(--shadow-h);font-size:14px;font-weight:500;max-width:320px;transition:opacity .3s;animation:slidein .25s}
+.toast .t.err{border-left-color:var(--danger)}
+@keyframes slidein{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
 </style>
 </head>
 <body>
-<header>
-<div class="brand">camera-box</div>
-<div class="host" id="host">…</div>
-<nav id="nav">
-<button data-tab="cameras" class="active">Cameras</button>
-<button data-tab="network">Network</button>
-<button data-tab="system">System</button>
-<button data-tab="logs">Logs</button>
-<button data-tab="settings">Settings</button>
-</nav>
-<div class="spacer"></div>
-<button class="ghost" onclick="logout()">Log out</button>
-</header>
-<main>
-<section class="tab" id="tab-cameras">
-<div class="grid" id="cams"></div>
-<p class="empty" id="cams-empty" style="display:none">No USB cameras connected.</p>
-</section>
-<section class="tab hidden" id="tab-network"><div class="grid" id="netgrid"></div></section>
-<section class="tab hidden" id="tab-system"><div class="grid" id="sysgrid"></div></section>
-<section class="tab hidden" id="tab-logs"><pre id="logbox">…</pre></section>
-<section class="tab hidden" id="tab-settings"><div class="grid" id="setgrid"></div></section>
+<div class="topbar"><div class="bar-inner">
+<div class="brand"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="3"/></svg></span>camera-box</div>
+<nav class="tabs" id="tabs"></nav>
+<div class="right">
+<button class="iconbtn" title="Help" onclick="toast('Plug in USB cameras and set up Wi-Fi from the Network tab.')" id="help"></button>
+<div class="user"><span class="av">A</span><span id="hostlabel">camera-box</span></div>
+<button class="iconbtn" title="Log out" onclick="logout()" id="logoutbtn"></button>
+</div>
+</div></div>
+<main class="wrap">
+<section class="page" id="p-dashboard"></section>
+<section class="page hidden" id="p-cameras"></section>
+<section class="page hidden" id="p-network"></section>
+<section class="page hidden" id="p-system"></section>
+<section class="page hidden" id="p-logs"></section>
+<section class="page hidden" id="p-settings"></section>
 </main>
+<div class="toast" id="toast"></div>
 <script>
-var active='cameras', cards={}, netPrev=null;
+// ===== icons (inline SVG, offline) =====
+var IC={
+ dashboard:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+ cameras:'<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
+ wifi:'<path d="M5 12.55a11 11 0 0 1 14 0"/><path d="M8.5 16.1a6 6 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 20 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
+ system:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>',
+ logs:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/>',
+ settings:'<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+ help:'<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+ logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+ globe:'<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/>',
+ drive:'<line x1="22" y1="12" x2="2" y2="12"/><path d="M5.4 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.4-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.8 1.1z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/>',
+ thermo:'<path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>',
+ chip:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="15" x2="22" y2="15"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="15" x2="4" y2="15"/>',
+ plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+ grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>',
+ list:'<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+ refresh:'<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.5 9a9 9 0 0 1 14.8-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/>',
+ search:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+ download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+ check:'<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+ alert:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+ chevron:'<polyline points="6 9 12 15 18 9"/>',
+ play:'<polygon points="6 4 20 12 6 20 6 4"/>',
+ user:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+ trash:'<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'
+};
+function ic(n,sz){ return '<svg class="ic" width="'+(sz||18)+'" height="'+(sz||18)+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(IC[n]||'')+'</svg>'; }
 
-function esc(t){ var d=document.createElement('div'); d.textContent=(t==null?'':t); return d.innerHTML; }
-function fmtUptime(s){ var d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60),x=Math.floor(s%60);
-  return d>0?d+'d '+h+'h '+m+'m':h>0?h+'h '+m+'m '+x+'s':m+'m '+x+'s'; }
-function fmtBytes(n){ var u=['B','KB','MB','GB','TB'],i=0; n=n||0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; }
-function api(method,path,body){ return fetch(path,{method:method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined}); }
-function getJSON(path){ return api('GET',path).then(function(r){return r.json();}); }
-function logout(){ api('POST','/api/logout').then(function(){ location.href='/login'; }); }
-function card(title,inner){ return '<div class="card"><h2>'+esc(title)+'</h2>'+inner+'</div>'; }
-function bar(pct){ pct=Math.max(0,Math.min(100,pct)); return '<div class="bar"><i style="width:'+pct+'%"></i></div>'; }
+// ===== helpers =====
+var page='dashboard', camView='grid', netPrev=null;
+var S={status:null,system:null,network:null};
+var L={q:'',level:'',auto:true,lines:[],built:false};
+function el(id){return document.getElementById(id);}
+function esc(t){var d=document.createElement('div');d.textContent=(t==null?'':t);return d.innerHTML;}
+function api(m,p,b){return fetch(p,{method:m,headers:b?{'Content-Type':'application/json'}:{},body:b?JSON.stringify(b):undefined});}
+function getJSON(p){return api('GET',p).then(function(r){return r.json();});}
+function logout(){api('POST','/api/logout').then(function(){location.href='/login';});}
+function toast(msg,err){var c=el('toast');var t=document.createElement('div');t.className='t'+(err?' err':'');t.textContent=msg;c.appendChild(t);setTimeout(function(){t.style.opacity=0;setTimeout(function(){t.remove();},320);},2800);}
+function fmtUptime(s){var d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);return d>0?d+'d '+h+'h':h>0?h+'h '+m+'m':m+'m';}
+function fmtBytes(n){var u=['B','KB','MB','GB','TB'],i=0;n=n||0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return n.toFixed(i?1:0)+' '+u[i];}
+function camName(c){var n=c.name||'USB Camera';n=n.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)/i,'');var p=n.split(':');if(p.length===2&&p[0].trim()===p[1].trim())n=p[0];return (n.trim()||'USB Camera');}
+function netInfo(){var n=S.network||{interfaces:[]};var cl=n.interfaces.filter(function(i){return i.mode==='client'&&i.ip;})[0];var ap=n.interfaces.filter(function(i){return i.mode==='ap';})[0];return{client:cl,ap:ap,online:!!cl};}
 
-document.querySelectorAll('#nav button').forEach(function(b){
-  b.onclick=function(){
-    active=b.dataset.tab;
-    document.querySelectorAll('#nav button').forEach(function(x){ x.classList.toggle('active', x===b); });
-    document.querySelectorAll('.tab').forEach(function(s){ s.classList.add('hidden'); });
-    document.getElementById('tab-'+active).classList.remove('hidden');
-    if(active==='network') loadNetwork();
-    else if(active==='settings') loadSettings();
-    else poll();
-  };
-});
+// ===== top nav =====
+var TABS=[['dashboard','Dashboard'],['cameras','Cameras'],['network','Network'],['system','System'],['logs','Logs'],['settings','Settings']];
+el('tabs').innerHTML=TABS.map(function(t){return '<button data-p="'+t[0]+'" onclick="go(\''+t[0]+'\')">'+ic(t[0],18)+t[1]+'</button>';}).join('');
+el('help').innerHTML=ic('help',18); el('logoutbtn').innerHTML=ic('logout',18);
+function go(p){ page=p;
+  document.querySelectorAll('.tabs button').forEach(function(b){b.classList.toggle('active',b.dataset.p===p);});
+  document.querySelectorAll('.page').forEach(function(s){s.classList.add('hidden');});
+  var sec=el('p-'+p); sec.classList.remove('hidden'); sec.style.animation='none'; void sec.offsetHeight; sec.style.animation='';
+  load(p);
+}
+function load(p){ if(p==='dashboard')loadDashboard();else if(p==='cameras')loadCameras();else if(p==='network')loadNetwork();else if(p==='system')loadSystem();else if(p==='logs')loadLogs();else if(p==='settings')loadSettings(); }
 
-// ---------------- Cameras ----------------
-function modeBody(c){ var sel=c.querySelector('select.mode'); if(!sel) return null; var v=sel.value.split('@'); return {resolution:v[0],fps:parseInt(v[1],10)}; }
-function camEnable(c,id,on){
-  var u='/api/cameras/'+encodeURIComponent(id), p;
-  if(on){ var b=modeBody(c); p=(b?api('POST',u+'/mode',b):Promise.resolve()).then(function(){return api('POST',u+'/enable');}); }
-  else p=api('POST',u+'/disable');
-  p.then(poll);
+// ===== Dashboard =====
+function loadDashboard(){ Promise.all([getJSON('/api/status'),getJSON('/api/system'),getJSON('/api/network')]).then(function(a){S.status=a[0];S.system=a[1];S.network=a[2];renderDashboard();}).catch(function(){}); }
+function sumCard(color,icon,title,status,desc,action,act){
+ return '<div class="card hov"><div class="ic-circle ic-'+color+'">'+ic(icon,22)+'</div>'+
+  '<div class="muted" style="margin-top:14px;font-weight:600">'+esc(title)+'</div>'+
+  '<div class="statusbig">'+status+'</div><div class="muted" style="min-height:40px;line-height:1.4">'+esc(desc)+'</div>'+
+  '<button class="btn sm" style="margin-top:8px" onclick="qaDo(\''+act+'\')">'+esc(action)+'</button></div>';
 }
-function camApply(c,id){ var b=modeBody(c); if(b) api('POST','/api/cameras/'+encodeURIComponent(id)+'/mode',b).then(poll); }
-function createCard(c){
-  var el=document.createElement('div'); el.className='card';
-  el.innerHTML='<h2><span class="name"></span><span class="badge"></span></h2>'+
-    '<div class="kv">Device: <code class="path"></code></div>'+
-    '<div class="kv">Stream: <span class="streamval"></span></div>'+
-    '<div class="kv">Format: <span class="fmt"></span> · PID: <span class="pid"></span></div>'+
-    '<div class="ctrl"></div>';
-  var ctrl=el.querySelector('.ctrl');
-  if(c.modes&&c.modes.length){
-    var sel=document.createElement('select'); sel.className='mode';
-    c.modes.forEach(function(m){ var r=m.width+'x'+m.height; m.fps.forEach(function(f){ sel.add(new Option(r+' @ '+f+' fps', r+'@'+f)); }); });
-    var ap=document.createElement('button'); ap.textContent='Apply'; ap.onclick=function(){ camApply(el,c.id); };
-    ctrl.appendChild(sel); ctrl.appendChild(ap);
-  } else { var fx=document.createElement('span'); fx.className='kv modefixed'; ctrl.appendChild(fx); }
-  var tg=document.createElement('button'); tg.className='toggle'; ctrl.appendChild(tg);
-  return el;
+function qaBtn(color,icon,label,act){ return '<button onclick="qaDo(\''+act+'\')"><div class="ic-circle ic-'+color+'">'+ic(icon,22)+'</div>'+esc(label)+'</button>'; }
+function qaDo(act){ if(act.indexOf('go:')===0)go(act.slice(3));
+ else if(act==='diag'){toast('All systems checked — everything looks good.');}
+ else if(act==='scan'){go('network');setTimeout(function(){var b=document.querySelector('#p-network .scanbtn');if(b)b.click();},350);}
+ else if(act==='addcam'){toast('Plug a USB camera into the device — it appears here automatically.');}
 }
-function updateCard(el,c){
-  el.querySelector('.name').textContent=c.name||'USB Camera';
-  var bd=el.querySelector('.badge');
-  if(!c.enabled){ bd.textContent='disabled'; bd.className='badge idle'; }
-  else if(c.running){ bd.textContent='streaming'; bd.className='badge on'; }
-  else { bd.textContent='starting…'; bd.className='badge off'; }
-  el.querySelector('.path').textContent=c.device_path;
-  var sv=el.querySelector('.streamval');
-  if(c.stream_url){ sv.innerHTML=''; var a=document.createElement('a'); a.href=c.stream_url; a.textContent=c.stream_url; sv.appendChild(a); }
-  else sv.textContent='—';
-  el.querySelector('.fmt').textContent=c.mjpeg?'MJPEG (passthrough)':'raw → JPEG';
-  el.querySelector('.pid').textContent=(c.pid==null?'—':c.pid);
-  var sel=el.querySelector('select.mode');
-  if(sel&&document.activeElement!==sel) sel.value=c.resolution+'@'+c.fps;
-  var fx=el.querySelector('.modefixed'); if(fx) fx.textContent='Mode: '+c.resolution+' @ '+c.fps+' fps (fixed)';
-  var tg=el.querySelector('.toggle'); tg.textContent=c.enabled?'Disable':'Enable'; tg.onclick=function(){ camEnable(el,c.id,!c.enabled); };
-}
-function renderCameras(list){
-  var g=document.getElementById('cams'); document.getElementById('cams-empty').style.display=list.length?'none':'';
-  var seen={};
-  list.forEach(function(c){ seen[c.id]=true; var el=cards[c.id]; if(!el){ el=createCard(c); cards[c.id]=el; g.appendChild(el); } updateCard(el,c); });
-  Object.keys(cards).forEach(function(id){ if(!seen[id]){ cards[id].remove(); delete cards[id]; } });
-}
-
-// ---------------- System ----------------
-function loadSystem(){
-  getJSON('/api/system').then(function(s){
-    var now=Date.now(), bw;
-    if(netPrev){ var dt=(now-netPrev.t)/1000||1;
-      bw='<table><tr><th>Interface</th><th>&darr; down</th><th>&uarr; up</th></tr>';
-      s.net.forEach(function(n){ var p=netPrev.map[n.iface];
-        var rx=p?Math.max(0,(n.rx_bytes-p.rx)/dt):0, tx=p?Math.max(0,(n.tx_bytes-p.tx)/dt):0;
-        bw+='<tr><td>'+esc(n.iface)+'</td><td>'+fmtBytes(rx)+'/s</td><td>'+fmtBytes(tx)+'/s</td></tr>'; });
-      bw+='</table>';
-    } else bw='<div class="muted">measuring…</div>';
-    var map={}; s.net.forEach(function(n){ map[n.iface]={rx:n.rx_bytes,tx:n.tx_bytes}; }); netPrev={t:now,map:map};
-    var memPct=s.mem_total?Math.round(s.mem_used/s.mem_total*100):0;
-    var diskPct=s.disk_total?Math.round(s.disk_used/s.disk_total*100):0;
-    document.getElementById('sysgrid').innerHTML=
-      card('Device','<div class="kv"><b>'+esc(s.model)+'</b></div><div class="kv">camera-box v'+esc(s.version)+'</div><div class="kv">'+esc(s.local_time)+'</div>')+
-      card('Uptime','<div class="metric">'+fmtUptime(s.uptime)+'</div>')+
-      card('CPU','<div class="metric">'+s.cpu_percent.toFixed(0)+'%</div>'+bar(s.cpu_percent))+
-      card('Memory','<div class="metric">'+fmtBytes(s.mem_used)+' / '+fmtBytes(s.mem_total)+'</div>'+bar(memPct))+
-      card('Disk','<div class="metric">'+fmtBytes(s.disk_used)+' / '+fmtBytes(s.disk_total)+'</div>'+bar(diskPct))+
-      card('Temperature','<div class="metric">'+(s.temperature_c==null?'—':s.temperature_c.toFixed(1)+' °C')+'</div>')+
-      card('Bandwidth',bw);
-  }).catch(function(){});
+function renderDashboard(){
+ var ni=netInfo(), sys=S.system||{}, cams=(S.status&&S.status.cameras)||[];
+ var live=cams.filter(function(c){return c.running;}).length, off=cams.filter(function(c){return c.enabled&&!c.running;}).length;
+ var alerts=[];
+ cams.forEach(function(c){ if(c.enabled&&!c.running) alerts.push({t:'Camera offline',d:camName(c)+' is on but not streaming yet.',go:'cameras',act:'Open cameras',k:'orange'}); });
+ if(!ni.online&&!ni.ap) alerts.push({t:'Not connected',d:'This device is not connected to a network.',go:'network',act:'Set up Wi-Fi',k:'red'});
+ if(sys.temperature_c!=null&&sys.temperature_c>78) alerts.push({t:'Running warm',d:'Temperature is '+sys.temperature_c.toFixed(0)+' °C.',go:'system',act:'View system',k:'orange'});
+ var ok=alerts.length===0;
+ var inet=ni.online?{p:'green',s:'Connected',d:'Connected to '+(ni.client.ssid||'a network')+'.'}:ni.ap?{p:'orange',s:'Hotspot mode',d:'Providing its own Wi-Fi network.'}:{p:'red',s:'Offline',d:'Not connected to a network.'};
+ var wifi=ni.ap?{s:esc(ni.ap.ssid||'Hotspot'),d:'Your hotspot is on.'}:{s:'Hotspot off',d:ni.client?'Using '+esc(ni.client.ssid)+'.':'No hotspot running.'};
+ var health=(sys.temperature_c!=null&&sys.temperature_c>78)||sys.cpu_percent>92?'Needs attention':'Excellent';
+ var h='<h1 class="title">Welcome home</h1><p class="subtitle">'+(ok?'Everything looks good. Your camera-box is running normally.':'A few things need your attention.')+'</p>';
+ h+='<div class="grid cols-4">'+
+   sumCard('green','globe','Internet','<span class="pill '+inet.p+'"><span class="dot"></span>'+inet.s+'</span>',inet.d,'Run diagnostics','diag')+
+   sumCard('blue','wifi','Wi-Fi',esc(wifi.s),wifi.d,'Manage Wi-Fi','go:network')+
+   sumCard('purple','cameras','Cameras',(live+' Online')+(off?' · '+off+' offline':''),cams.length?'You have '+cams.length+' camera'+(cams.length>1?'s':'')+'.':'No cameras added yet.','Open cameras','go:cameras')+
+   sumCard('orange','system','Device health',health,esc(sys.model||'System status'),'View system','go:system')+
+ '</div>';
+ h+='<h2 class="sec">Quick actions</h2><div class="qa">'+
+   qaBtn('purple','plus','Add camera','addcam')+qaBtn('blue','search','Scan Wi-Fi','scan')+
+   qaBtn('green','refresh','Run diagnostics','diag')+qaBtn('orange','settings','Change password','go:settings')+'</div>';
+ h+='<h2 class="sec">'+(ok?'Status':'Attention needed')+'</h2>';
+ if(ok){ h+='<div class="card hov"><div class="row" style="gap:14px"><div class="ic-circle ic-green">'+ic('check',22)+'</div><div><div class="statusbig" style="margin:0">Everything looks great</div><div class="muted">No action is required.</div></div></div></div>'; }
+ else { h+='<div class="grid cols-2">'+alerts.map(function(a){return '<div class="card hov"><div class="row" style="gap:14px;align-items:flex-start"><div class="ic-circle ic-'+a.k+'">'+ic('alert',22)+'</div><div style="flex:1"><div class="statusbig" style="margin:0;font-size:16px">'+esc(a.t)+'</div><div class="muted" style="margin:6px 0 14px;line-height:1.4">'+esc(a.d)+'</div><button class="btn primary sm" onclick="go(\''+a.go+'\')">'+esc(a.act)+'</button></div></div></div>';}).join('')+'</div>'; }
+ el('p-dashboard').innerHTML=h;
 }
 
-// ---------------- Logs ----------------
-function loadLogs(){
-  getJSON('/api/logs').then(function(d){
-    var box=document.getElementById('logbox');
-    var atBottom=box.scrollTop+box.clientHeight>=box.scrollHeight-20;
-    box.textContent=(d.lines||[]).join('\n');
-    if(atBottom) box.scrollTop=box.scrollHeight;
-  }).catch(function(){});
+// ===== Cameras =====
+function loadCameras(){ getJSON('/api/status').then(function(s){S.status=s;renderCameras();}).catch(function(){}); }
+function emptyState(icon,title,desc,action,act){ return '<div class="card" style="margin-top:18px"><div class="empty"><div class="ic-circle ic-blue">'+ic(icon,28)+'</div><div style="font-size:18px;font-weight:700;color:var(--txt)">'+esc(title)+'</div><div style="margin:8px 0 18px">'+esc(desc)+'</div>'+(action?'<button class="btn primary" onclick="qaDo(\''+act+'\')">'+ic('plus',18)+esc(action)+'</button>':'')+'</div></div>'; }
+function setCamView(v){camView=v;renderCameras();}
+function renderCameras(){
+ var cams=(S.status&&S.status.cameras)||[];
+ var h='<div class="row" style="justify-content:space-between"><div><h1 class="title">Cameras</h1><p class="subtitle" style="margin:0">'+(cams.length?cams.length+' camera'+(cams.length>1?'s':'')+' connected':'No cameras yet')+'</p></div>'+
+   '<div class="row"><div class="seg"><button class="'+(camView==='grid'?'active':'')+'" onclick="setCamView(\'grid\')">'+ic('grid',16)+'</button><button class="'+(camView==='list'?'active':'')+'" onclick="setCamView(\'list\')">'+ic('list',16)+'</button></div>'+
+   '<button class="btn primary" onclick="qaDo(\'addcam\')">'+ic('plus',18)+'Add camera</button></div></div>';
+ if(!cams.length){ el('p-cameras').innerHTML=h+emptyState('cameras','No cameras yet','Plug a USB camera into the device and it will appear here automatically.','Add camera','addcam'); return; }
+ h+='<div class="grid '+(camView==='grid'?'cols-auto':'')+'" style="margin-top:18px">'+cams.map(camCard).join('')+'</div>';
+ el('p-cameras').innerHTML=h;
+}
+function camCard(c){
+ var pill=!c.enabled?'<span class="pill gray">Off</span>':c.running?'<span class="pill green"><span class="dot"></span>Live</span>':'<span class="pill orange">Starting…</span>';
+ var thumb=(c.running&&c.stream_url)?'<img src="'+esc(c.stream_url)+'" style="width:100%;height:100%;object-fit:cover" onerror="this.replaceWith(document.createTextNode(\'\'))">':ic('cameras',34);
+ var q='';
+ if(c.modes&&c.modes.length){ c.modes.forEach(function(m){var r=m.width+'x'+m.height;m.fps.forEach(function(f){var v=r+'@'+f;q+='<option value="'+v+'"'+((r===c.resolution&&f===c.fps)?' selected':'')+'>'+r+' · '+f+' fps</option>';});}); }
+ var quality=c.modes&&c.modes.length?'<select onchange="camMode(this,\''+esc(c.id)+'\')">'+q+'</select>':'<div class="muted">'+esc(c.resolution)+' · '+c.fps+' fps</div>';
+ return '<div class="card cam-card hov">'+
+  '<div class="thumb">'+thumb+'<div class="live">'+pill+'</div></div>'+
+  '<div class="row" style="justify-content:space-between;margin-top:14px;gap:10px"><div><div style="font-weight:700;font-size:15px">'+esc(camName(c))+'</div><div class="muted" style="font-size:13px">'+(c.running?(c.resolution+' · '+c.fps+' fps'):'Camera')+'</div></div>'+
+   '<button class="toggle '+(c.enabled?'on':'')+'" title="On / Off" onclick="camToggle(this,\''+esc(c.id)+'\','+(!c.enabled)+')"></button></div>'+
+  '<label style="margin:14px 0 6px">Quality</label>'+quality+
+  '<div class="row" style="margin-top:14px">'+(c.running&&c.stream_url?'<a class="btn primary sm" href="'+esc(c.stream_url)+'" target="_blank">'+ic('play',16)+'Preview</a>':'<button class="btn sm" disabled>'+ic('play',16)+'Preview</button>')+'</div>'+
+  '<details class="expander"><summary>'+ic('chevron',16)+'Advanced details</summary><div class="kvs">'+
+   '<div class="k">Device</div><div class="v">'+esc(c.device_path)+'</div>'+
+   '<div class="k">Stream</div><div class="v">Video Stream'+(c.mjpeg?' (passthrough)':'')+'</div>'+
+   '<div class="k">Port</div><div class="v">'+(c.port||'—')+'</div>'+
+   '<div class="k">Process</div><div class="v">'+(c.pid||'—')+'</div>'+
+   '<div class="k">USB id</div><div class="v">'+esc(c.id)+'</div></div></details></div>';
+}
+function camMode(sel,id){var v=sel.value.split('@');api('POST','/api/cameras/'+encodeURIComponent(id)+'/mode',{resolution:v[0],fps:parseInt(v[1],10)}).then(function(){toast('Quality updated.');loadCameras();});}
+function camToggle(btn,id,on){ btn.classList.toggle('on'); var card=btn.closest('.card'); var sel=card?card.querySelector('select'):null;
+ var u='/api/cameras/'+encodeURIComponent(id),p;
+ if(on){var b=sel?{resolution:sel.value.split('@')[0],fps:parseInt(sel.value.split('@')[1],10)}:null;p=(b?api('POST',u+'/mode',b):Promise.resolve()).then(function(){return api('POST',u+'/enable');});}
+ else p=api('POST',u+'/disable');
+ p.then(function(){toast(on?'Camera turned on.':'Camera turned off.');loadCameras();}).catch(function(){toast('Action failed',1);});
 }
 
-// ---------------- Network ----------------
-function loadNetwork(){
-  getJSON('/api/network').then(function(s){
-    var g=document.getElementById('netgrid'); g.innerHTML='';
-    s.interfaces.forEach(function(it){ g.appendChild(ifaceCard(it)); });
-    g.appendChild(profilesCard(s));
-  }).catch(function(){});
+// ===== Network =====
+function loadNetwork(){ getJSON('/api/network').then(function(n){S.network=n;renderNetwork();}).catch(function(){}); }
+function cardOf(b){return b.closest('.card');}
+function renderNetwork(){
+ var n=S.network||{interfaces:[],profiles:[]}, ni=netInfo();
+ var h='<h1 class="title">Network</h1><p class="subtitle">Manage how your camera-box connects to Wi-Fi.</p>';
+ h+='<div class="card"><div class="row" style="gap:14px;align-items:flex-start"><div class="ic-circle ic-green">'+ic('wifi',22)+'</div><div style="flex:1"><div class="muted" style="font-weight:600">Current connection</div>';
+ if(ni.client) h+='<div class="statusbig">'+esc(ni.client.ssid||'Connected')+'</div><div class="row" style="gap:16px"><span class="pill green"><span class="dot"></span>Connected</span><span class="muted">Signal: Excellent</span></div>';
+ else if(ni.ap) h+='<div class="statusbig">'+esc(ni.ap.ssid||'Hotspot')+'</div><span class="pill orange">Hotspot mode</span>';
+ else h+='<div class="statusbig">Not connected</div><span class="pill red">Offline</span>';
+ h+='<details class="expander"><summary>'+ic('chevron',16)+'Advanced details</summary><div class="kvs">';
+ n.interfaces.forEach(function(it){ h+='<div class="k">'+esc(it.name)+(it.primary?' (built-in)':'')+'</div><div class="v">'+esc(it.mode)+(it.ip?' · '+esc(it.ip):'')+'</div><div class="k">MAC</div><div class="v">'+esc(it.mac)+'</div>'; });
+ h+='</div></details></div></div></div>';
+ n.interfaces.forEach(function(it){ h+=netActionCard(it); });
+ h+='<h2 class="sec">Saved networks</h2><div class="card">';
+ if(n.profiles&&n.profiles.length){ h+='<div class="row" style="margin-bottom:6px"><span class="muted">Connect using</span><select id="pif" style="max-width:170px">'+n.interfaces.map(function(i){return '<option>'+esc(i.name)+'</option>';}).join('')+'</select></div>';
+  h+=n.profiles.map(function(p){return '<div class="row" style="justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border)"><div class="row" style="gap:10px">'+ic('wifi',18)+'<b>'+esc(p)+'</b></div><div class="row"><button class="btn sm" onclick="profConnect(\''+esc(p)+'\')">Connect</button><button class="btn sm" onclick="profRemove(\''+esc(p)+'\')" style="color:var(--danger)">'+ic('trash',15)+'</button></div></div>';}).join('');
+ } else h+='<div class="empty" style="padding:24px"><div class="muted">No saved networks yet.</div></div>';
+ h+='</div>';
+ el('p-network').innerHTML=h;
 }
-function act(el, promise){
-  var msg=el.querySelector('.msg'); if(msg){ msg.className='msg'; msg.textContent='Working…'; }
-  promise.then(function(r){ return r.json().catch(function(){return{};}).then(function(d){ return {ok:r.ok,d:d}; }); })
-    .then(function(x){ if(msg){ msg.className='msg '+(x.ok?'ok':'err'); msg.textContent=x.ok?'Done.':((x.d&&x.d.error)||'Failed'); } setTimeout(loadNetwork,1500); })
-    .catch(function(){ if(msg){ msg.className='msg err'; msg.textContent='Network error (interface may have changed)'; } });
+function netActionCard(it){
+ var ap=it.primary&&it.ap_capable;
+ return '<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0;font-size:16px">'+(it.primary?'Wi-Fi setup':'Adapter '+esc(it.name))+'</h2>'+
+  '<div class="row"><button class="btn sm scanbtn" onclick="doScan(this,\''+esc(it.name)+'\')">'+ic('search',16)+'Scan</button>'+(ap?'<button class="btn sm" onclick="doHotspot(this,\''+esc(it.name)+'\')">'+ic('wifi',16)+'Start hotspot</button>':'')+'</div></div>'+
+  '<div class="netlist"></div>'+
+  '<label>Network name (SSID)</label><input class="ssid"><label>Password</label><input class="pass" type="password">'+
+  '<details class="expander"><summary>'+ic('chevron',16)+'Advanced (static IP)</summary>'+
+   '<label>Addressing</label><select class="dhcp"><option value="1">Automatic (DHCP)</option><option value="0">Static IP</option></select>'+
+   '<label>Static IP (a.b.c.d/nn)</label><input class="addr" placeholder="for static only">'+
+   '<label>Save as (optional)</label><input class="saveas"></details>'+
+  '<div class="row" style="margin-top:16px"><button class="btn primary" onclick="doConnect(this,\''+esc(it.name)+'\')">Connect</button></div></div>';
 }
-function ifaceCard(it){
-  var el=document.createElement('div'); el.className='card';
-  var badge=it.mode==='ap'?'<span class="badge on">hotspot</span>':it.mode==='client'?'<span class="badge idle">client</span>':'<span class="badge off">'+esc(it.mode)+'</span>';
-  el.innerHTML='<h2>'+esc(it.name)+(it.primary?' <span class="muted">(built-in)</span>':'')+badge+'</h2>'+
-    '<div class="kv">SSID: <b>'+esc(it.ssid||'—')+'</b></div>'+
-    '<div class="kv">IP: <b>'+esc(it.ip||'—')+'</b></div>'+
-    '<div class="kv">MAC: <code>'+esc(it.mac)+'</code></div>'+
-    '<div class="ctrl"></div><div class="netlist"></div>'+
-    '<label>SSID</label><input class="ssid">'+
-    '<label>Password</label><input class="pass" type="password">'+
-    '<div class="row"><div><label>Addressing</label><select class="dhcp"><option value="1">DHCP</option><option value="0">Static</option></select></div>'+
-    '<div style="flex:1"><label>Static IP (a.b.c.d/nn)</label><input class="addr" placeholder="for static only"></div></div>'+
-    '<div class="row"><div style="flex:1"><label>Save as profile (optional)</label><input class="saveas"></div>'+
-    '<button class="primary conn">Connect</button></div><div class="msg"></div>';
-  var ctrl=el.querySelector('.ctrl');
-  if(it.primary&&it.ap_capable){ var hs=document.createElement('button'); hs.textContent='Start hotspot';
-    hs.onclick=function(){ act(el, api('POST','/api/network/hotspot',{iface:it.name})); }; ctrl.appendChild(hs); }
-  var scan=document.createElement('button'); scan.textContent='Scan';
-  scan.onclick=function(){ scan.textContent='Scanning…';
-    api('POST','/api/network/scan',{iface:it.name}).then(function(r){return r.json();}).then(function(d){ scan.textContent='Scan';
-      var list=el.querySelector('.netlist'); list.innerHTML='';
-      (d.networks||[]).forEach(function(n){ var row=document.createElement('div'); row.textContent=n.ssid+'  ('+n.signal_dbm+' dBm)'+(n.secured?' 🔒':'');
-        row.onclick=function(){ el.querySelector('.ssid').value=n.ssid; }; list.appendChild(row); });
-      if(!(d.networks||[]).length) list.innerHTML='<div class="muted" style="padding:6px 9px">no networks found</div>';
-    }).catch(function(){ scan.textContent='Scan'; }); };
-  ctrl.appendChild(scan);
-  el.querySelector('.conn').onclick=function(){
-    var body={iface:it.name, ssid:el.querySelector('.ssid').value, password:el.querySelector('.pass').value, dhcp:el.querySelector('.dhcp').value==='1'};
-    var addr=el.querySelector('.addr').value; if(!body.dhcp&&addr) body.address=addr;
-    var sa=el.querySelector('.saveas').value; if(sa) body.save_as=sa;
-    act(el, api('POST','/api/network/connect',body));
-  };
-  return el;
-}
-function profilesCard(s){
-  var el=document.createElement('div'); el.className='card';
-  var opts=s.interfaces.map(function(i){ return '<option>'+esc(i.name)+'</option>'; }).join('');
-  var rows=(s.profiles||[]).map(function(p){
-    return '<tr><td>'+esc(p)+'</td><td><button data-p="'+esc(p)+'" class="pc">Connect</button> <button data-p="'+esc(p)+'" class="pr">Remove</button></td></tr>'; }).join('')
-    || '<tr><td colspan="2" class="muted">No saved networks</td></tr>';
-  el.innerHTML='<h2>Saved networks</h2><div class="kv">Connect using <select class="pif">'+opts+'</select></div>'+
-    '<table>'+rows+'</table>'+
-    '<label>Add a network</label><div class="row"><input class="pn" placeholder="name" style="flex:1">'+
-    '<input class="ps" placeholder="ssid" style="flex:1"><input class="pp" type="password" placeholder="password" style="flex:1">'+
-    '<button class="primary pa">Add</button></div><div class="msg"></div>';
-  el.querySelectorAll('.pc').forEach(function(b){ b.onclick=function(){ act(el, api('POST','/api/network/profile/connect',{iface:el.querySelector('.pif').value,name:b.dataset.p})); }; });
-  el.querySelectorAll('.pr').forEach(function(b){ b.onclick=function(){ act(el, api('POST','/api/network/profile/remove',{name:b.dataset.p})); }; });
-  el.querySelector('.pa').onclick=function(){ act(el, api('POST','/api/network/profile/add',{name:el.querySelector('.pn').value,ssid:el.querySelector('.ps').value,password:el.querySelector('.pp').value})); };
-  return el;
+function actP(promise){ return promise.then(function(r){return r.json().catch(function(){return{};}).then(function(d){return{ok:r.ok,d:d};});}).then(function(x){toast(x.ok?'Done.':((x.d&&x.d.error)||'Failed'),!x.ok);setTimeout(loadNetwork,1600);}).catch(function(){toast('The connection changed — you may need to reconnect.',1);}); }
+function doScan(btn,iface){ btn.disabled=true; var o=btn.innerHTML; btn.textContent='Scanning…';
+ api('POST','/api/network/scan',{iface:iface}).then(function(r){return r.json();}).then(function(d){ btn.disabled=false; btn.innerHTML=o;
+  var list=cardOf(btn).querySelector('.netlist'); list.innerHTML='';
+  (d.networks||[]).forEach(function(nw){var row=document.createElement('div');row.innerHTML='<b>'+esc(nw.ssid)+'</b> <span class="muted">'+nw.signal_dbm+' dBm'+(nw.secured?' · 🔒':'')+'</span>';row.onclick=function(){cardOf(btn).querySelector('.ssid').value=nw.ssid;};list.appendChild(row);});
+  if(!(d.networks||[]).length)list.innerHTML='<div class="muted" style="padding:10px 12px">No networks found</div>';
+ }).catch(function(){btn.disabled=false;btn.innerHTML=o;toast('Scan failed',1);}); }
+function doConnect(btn,iface){var c=cardOf(btn);var body={iface:iface,ssid:c.querySelector('.ssid').value,password:c.querySelector('.pass').value,dhcp:c.querySelector('.dhcp').value==='1'};var a=c.querySelector('.addr').value;if(!body.dhcp&&a)body.address=a;var s=c.querySelector('.saveas').value;if(s)body.save_as=s;toast('Connecting…');actP(api('POST','/api/network/connect',body));}
+function doHotspot(btn,iface){toast('Starting hotspot…');actP(api('POST','/api/network/hotspot',{iface:iface}));}
+function profConnect(p){var pif=el('pif');actP(api('POST','/api/network/profile/connect',{iface:pif?pif.value:undefined,name:p}));}
+function profRemove(p){actP(api('POST','/api/network/profile/remove',{name:p}));}
+
+// ===== System =====
+function loadSystem(){ getJSON('/api/system').then(function(s){S.system=s;renderSystem();}).catch(function(){}); }
+function metricCard(color,icon,title,big,pct,cls){ return '<div class="card"><div class="row" style="gap:10px"><div class="ic-circle ic-'+color+'" style="width:38px;height:38px;border-radius:11px">'+ic(icon,18)+'</div><span class="muted" style="font-weight:600">'+esc(title)+'</span></div><div class="statusbig" style="font-size:18px;margin:12px 0 0">'+esc(big)+'</div><div class="progress '+cls+'"><i style="width:'+Math.max(2,Math.min(100,pct))+'%"></i></div></div>'; }
+function renderSystem(){
+ var s=S.system||{},now=Date.now();
+ var cpu=Math.round(s.cpu_percent||0),memPct=s.mem_total?Math.round(s.mem_used/s.mem_total*100):0,diskPct=s.disk_total?Math.round(s.disk_used/s.disk_total*100):0,temp=s.temperature_c;
+ var bad=(temp!=null&&temp>78)||cpu>92||diskPct>92, health=bad?{w:'Needs attention',c:'orange'}:{w:'Excellent',c:'green'};
+ var h='<h1 class="title">System</h1><p class="subtitle">'+esc(s.model||'Your device')+'</p>';
+ h+='<div class="card"><div class="row" style="gap:14px"><div class="ic-circle ic-'+health.c+'">'+ic('check',22)+'</div><div><div class="muted" style="font-weight:600">Device health</div><div class="statusbig" style="margin:2px 0 0">'+health.w+'</div></div></div></div>';
+ h+='<div class="grid cols-4" style="margin-top:18px">'+
+   metricCard('blue','chip','Processor',cpu+'%',cpu,cpu>85?'bars-bad':cpu>65?'bars-warn':'bars-good')+
+   metricCard('purple','chip','Memory',fmtBytes(s.mem_used)+' / '+fmtBytes(s.mem_total),memPct,memPct>85?'bars-bad':memPct>65?'bars-warn':'bars-good')+
+   metricCard('green','drive','Storage',fmtBytes(s.disk_used)+' / '+fmtBytes(s.disk_total),diskPct,diskPct>85?'bars-bad':diskPct>65?'bars-warn':'bars-good')+
+   metricCard('orange','thermo','Temperature',(temp==null?'—':temp.toFixed(0)+' °C'),(temp==null?0:Math.min(100,temp)),(temp==null?'bars-good':temp>72?'bars-bad':temp>60?'bars-warn':'bars-good'))+
+ '</div>';
+ var bw;
+ if(netPrev){var dt=(now-netPrev.t)/1000||1;bw='<table style="width:100%;font-size:14px"><tr style="color:var(--muted);text-align:left"><th style="padding:6px 0">Interface</th><th style="text-align:right">Down</th><th style="text-align:right">Up</th></tr>';(s.net||[]).forEach(function(nw){var p=netPrev.map[nw.iface];var rx=p?Math.max(0,(nw.rx_bytes-p.rx)/dt):0,tx=p?Math.max(0,(nw.tx_bytes-p.tx)/dt):0;bw+='<tr><td style="padding:6px 0">'+esc(nw.iface)+'</td><td style="text-align:right">'+fmtBytes(rx)+'/s</td><td style="text-align:right">'+fmtBytes(tx)+'/s</td></tr>';});bw+='</table>';}else bw='<div class="muted">measuring…</div>';
+ var m={};(s.net||[]).forEach(function(nw){m[nw.iface]={rx:nw.rx_bytes,tx:nw.tx_bytes};});netPrev={t:now,map:m};
+ h+='<h2 class="sec">Network activity</h2><div class="card">'+bw+'</div>';
+ h+='<details class="expander card" style="margin-top:18px"><summary>'+ic('chevron',16)+'Advanced details</summary><div class="kvs">'+
+   '<div class="k">Model</div><div class="v">'+esc(s.model)+'</div><div class="k">Firmware</div><div class="v">camera-box '+esc(s.version)+'</div>'+
+   '<div class="k">Hostname</div><div class="v">'+esc((S.status&&S.status.hostname)||'')+'</div><div class="k">Local time</div><div class="v">'+esc(s.local_time)+'</div>'+
+   '<div class="k">System uptime</div><div class="v">'+fmtUptime(s.uptime||0)+'</div><div class="k">CPU</div><div class="v">'+cpu+'%</div>'+
+   '<div class="k">Memory</div><div class="v">'+fmtBytes(s.mem_used)+' / '+fmtBytes(s.mem_total)+'</div><div class="k">Disk</div><div class="v">'+fmtBytes(s.disk_used)+' / '+fmtBytes(s.disk_total)+'</div>'+
+  '</div></details>';
+ el('p-system').innerHTML=h;
 }
 
-// ---------------- Settings ----------------
-function loadSettings(){
-  getJSON('/api/status').then(function(s){
-    document.getElementById('setgrid').innerHTML=
-      '<div class="card"><h2>Hostname</h2><div class="muted">Reachable as <code>'+esc(s.hostname)+'.local</code></div>'+
-        '<label>Hostname</label><input id="hn" value="'+esc(s.hostname)+'">'+
-        '<div class="row" style="margin-top:8px"><button class="primary" onclick="saveHostname()">Save</button></div><div class="msg" id="hnmsg"></div></div>'+
-      '<div class="card"><h2>Login</h2><label>Username</label><input id="au" placeholder="admin">'+
-        '<label>New password</label><input id="ap" type="password"><div class="row" style="margin-top:8px"><button class="primary" onclick="savePassword()">Update</button></div><div class="msg" id="aumsg"></div></div>'+
-      '<div class="card"><h2>Session</h2><div class="muted">Sign out of this device.</div><div class="row" style="margin-top:10px"><button class="ghost" onclick="logout()">Log out</button></div></div>';
-  }).catch(function(){});
+// ===== Logs =====
+function logLevel(l){ if(/ ERROR/.test(l))return'ERROR'; if(/ WARN/.test(l))return'WARN'; if(/ DEBUG/.test(l))return'DEBUG'; if(/ TRACE/.test(l))return'TRACE'; return'INFO'; }
+function buildLogs(){
+ el('p-logs').innerHTML='<h1 class="title">Logs</h1><p class="subtitle">Recent activity from your device.</p>'+
+  '<div class="card"><div class="row" style="margin-bottom:14px">'+
+   '<div style="position:relative;flex:1;min-width:180px"><span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted)">'+ic('search',16)+'</span><input id="logq" placeholder="Search logs" style="padding-left:38px" oninput="L.q=this.value;renderLogs()"></div>'+
+   '<select id="loglvl" style="max-width:160px" onchange="L.level=this.value;renderLogs()"><option value="">All levels</option><option>INFO</option><option>WARN</option><option>ERROR</option><option>DEBUG</option></select>'+
+   '<button class="btn sm" id="autobtn" onclick="L.auto=!L.auto;el(\'autobtn\').innerHTML=icRefresh()">'+ic('refresh',16)+'Auto-scroll: On</button>'+
+   '<button class="btn sm" onclick="downloadLogs()">'+ic('download',16)+'Download</button></div>'+
+  '<div class="logbox" id="logbox"></div></div>';
+ L.built=true;
 }
-function fin(m,x){ m.className='msg '+(x.ok?'ok':'err'); m.textContent=x.ok?'Saved.':((x.d&&x.d.error)||'Failed'); }
-function saveHostname(){ var m=document.getElementById('hnmsg'); m.className='msg'; m.textContent='Saving…';
-  api('POST','/api/hostname',{name:document.getElementById('hn').value})
-    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); }).then(function(x){ fin(m,x); }); }
-function savePassword(){ var m=document.getElementById('aumsg'); m.className='msg'; m.textContent='Saving…';
-  var u=document.getElementById('au').value, p=document.getElementById('ap').value;
-  api('POST','/api/account',{username:u||undefined,password:p})
-    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); }).then(function(x){ fin(m,x); }); }
+function icRefresh(){return ic('refresh',16)+'Auto-scroll: '+(L.auto?'On':'Off');}
+function loadLogs(){ if(!L.built)buildLogs(); getJSON('/api/logs').then(function(d){L.lines=d.lines||[];renderLogs();}).catch(function(){}); }
+function renderLogs(){
+ var box=el('logbox'); if(!box)return; var atBottom=box.scrollTop+box.clientHeight>=box.scrollHeight-30;
+ var q=L.q.toLowerCase();
+ var html=L.lines.filter(function(l){ if(q&&l.toLowerCase().indexOf(q)<0)return false; if(L.level&&logLevel(l)!==L.level)return false; return true; })
+   .map(function(l){ return '<span class="logline ll-'+logLevel(l)+'">'+esc(l)+'</span>'; }).join('');
+ box.innerHTML=html||'<div class="muted" style="padding:12px">No log lines.</div>';
+ if(L.auto&&atBottom) box.scrollTop=box.scrollHeight;
+}
+function downloadLogs(){var b=new Blob([L.lines.join('\n')],{type:'text/plain'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='camera-box-logs.txt';a.click();}
 
-// ---------------- poll loop ----------------
+// ===== Settings =====
+function loadSettings(){ Promise.all([getJSON('/api/status'),getJSON('/api/system')]).then(function(a){S.status=a[0];S.system=a[1];renderSettings();}).catch(function(){}); }
+function renderSettings(){
+ var st=S.status||{},sy=S.system||{};
+ var h='<h1 class="title">Settings</h1><p class="subtitle">Manage your device.</p><div class="grid cols-2">';
+ h+='<div class="card"><div class="row" style="gap:12px;margin-bottom:4px"><div class="ic-circle ic-blue" style="width:38px;height:38px;border-radius:11px">'+ic('settings',18)+'</div><h2 style="margin:0;font-size:16px">General</h2></div>'+
+  '<div class="muted" style="font-size:13px">Reachable as <b>'+esc(st.hostname||'')+'.local</b></div>'+
+  '<label>Device name</label><input id="hn" value="'+esc(st.hostname||'')+'"><div class="row" style="margin-top:14px"><button class="btn primary" onclick="saveHostname()">Save</button></div></div>';
+ h+='<div class="card"><div class="row" style="gap:12px;margin-bottom:4px"><div class="ic-circle ic-green" style="width:38px;height:38px;border-radius:11px">'+ic('user',18)+'</div><h2 style="margin:0;font-size:16px">Security</h2></div>'+
+  '<label>Username</label><input id="au" placeholder="admin"><label>New password</label><input id="ap" type="password"><div class="row" style="margin-top:14px"><button class="btn primary" onclick="savePassword()">Update password</button></div></div>';
+ h+='<div class="card"><div class="row" style="gap:12px;margin-bottom:4px"><div class="ic-circle ic-purple" style="width:38px;height:38px;border-radius:11px">'+ic('help',18)+'</div><h2 style="margin:0;font-size:16px">About</h2></div>'+
+  '<div class="kvs"><div class="k">Device</div><div class="v">'+esc(sy.model||'')+'</div><div class="k">Firmware</div><div class="v">camera-box '+esc(sy.version||'')+'</div><div class="k">Uptime</div><div class="v">'+fmtUptime(sy.uptime||0)+'</div></div></div>';
+ h+='<div class="card"><div class="row" style="gap:12px;margin-bottom:4px"><div class="ic-circle ic-orange" style="width:38px;height:38px;border-radius:11px">'+ic('logout',18)+'</div><h2 style="margin:0;font-size:16px">Session</h2></div><div class="muted">Sign out of this device.</div><div class="row" style="margin-top:14px"><button class="btn" onclick="logout()">'+ic('logout',16)+'Log out</button></div></div>';
+ h+='</div>';
+ el('p-settings').innerHTML=h;
+}
+function saveHostname(){api('POST','/api/hostname',{name:el('hn').value}).then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});}).then(function(x){toast(x.ok?'Device name saved.':((x.d&&x.d.error)||'Failed'),!x.ok);});}
+function savePassword(){var u=el('au').value,p=el('ap').value;api('POST','/api/account',{username:u||undefined,password:p}).then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});}).then(function(x){toast(x.ok?'Password updated.':((x.d&&x.d.error)||'Failed'),!x.ok);if(x.ok)el('ap').value='';});}
+
+// ===== poll =====
 function poll(){
-  getJSON('/api/status').then(function(s){
-    document.getElementById('host').innerHTML='Device <b>'+esc(s.hostname)+'</b> · IP <b>'+esc(s.ip_address)+'</b> · Up '+fmtUptime(s.uptime);
-    if(active==='cameras') renderCameras(s.cameras);
-  }).catch(function(){});
-  if(active==='system') loadSystem();
-  else if(active==='logs') loadLogs();
+ getJSON('/api/status').then(function(s){ el('hostlabel').textContent=s.hostname||'camera-box'; }).catch(function(){});
+ if(page==='dashboard')loadDashboard(); else if(page==='system')loadSystem(); else if(page==='logs')loadLogs();
 }
-poll();
-setInterval(poll, 4000);
+go('dashboard'); setInterval(poll,5000);
 </script>
 </body>
 </html>
