@@ -6,6 +6,7 @@
 
 mod camera;
 mod config;
+mod net;
 mod stream;
 mod update;
 mod web;

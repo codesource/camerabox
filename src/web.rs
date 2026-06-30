@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::camera::{self, AppState, CameraMode, ControlError};
+use crate::net;
 use crate::update;
 
 /// Build the complete application router, with Basic Auth if configured.
@@ -32,6 +33,13 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/cameras/:id/enable", post(enable_camera))
         .route("/api/cameras/:id/disable", post(disable_camera))
         .route("/api/cameras/:id/mode", post(set_camera_mode))
+        .route("/api/network", get(network_status))
+        .route("/api/network/scan", post(network_scan))
+        .route("/api/network/hotspot", post(network_hotspot))
+        .route("/api/network/connect", post(network_connect))
+        .route("/api/network/profile/add", post(profile_add))
+        .route("/api/network/profile/remove", post(profile_remove))
+        .route("/api/network/profile/connect", post(profile_connect))
         .merge(update::router())
         .with_state(state.clone());
 
@@ -197,6 +205,77 @@ fn map_result(result: Result<(), ControlError>) -> Response {
         )
             .into_response(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Network handlers
+// ---------------------------------------------------------------------------
+
+fn net_result(result: net::NetResult<()>) -> Response {
+    match result {
+        Ok(()) => (StatusCode::OK, Json(json!({ "status": "ok" }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct IfaceReq {
+    iface: String,
+}
+
+async fn network_status() -> Json<net::NetworkStatus> {
+    Json(net::status().await)
+}
+
+async fn network_scan(Json(r): Json<IfaceReq>) -> Response {
+    match net::scan(&r.iface).await {
+        Ok(networks) => (StatusCode::OK, Json(json!({ "networks": networks }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn network_hotspot(Json(r): Json<IfaceReq>) -> Response {
+    net_result(net::start_hotspot(&r.iface).await)
+}
+
+async fn network_connect(Json(p): Json<net::ConnectParams>) -> Response {
+    net_result(net::connect(&p).await)
+}
+
+#[derive(Deserialize)]
+struct ProfileAddReq {
+    name: String,
+    ssid: String,
+    password: String,
+}
+
+async fn profile_add(Json(r): Json<ProfileAddReq>) -> Response {
+    net_result(net::add_profile(&r.name, &r.ssid, &r.password).await)
+}
+
+#[derive(Deserialize)]
+struct ProfileNameReq {
+    name: String,
+}
+
+async fn profile_remove(Json(r): Json<ProfileNameReq>) -> Response {
+    net_result(net::remove_profile(&r.name))
+}
+
+#[derive(Deserialize)]
+struct ProfileConnectReq {
+    iface: String,
+    name: String,
+    #[serde(default = "default_true")]
+    dhcp: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+async fn profile_connect(Json(r): Json<ProfileConnectReq>) -> Response {
+    net_result(net::connect_profile(&r.iface, &r.name, r.dhcp).await)
 }
 
 // ---------------------------------------------------------------------------
