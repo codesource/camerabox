@@ -355,18 +355,25 @@ fi
 # --- install runtime dependencies inside the ARM rootfs (qemu chroot) -------
 info "installing dependencies in the ARM rootfs (emulated — slow)"
 cp /usr/bin/qemu-arm-static "$MNT/usr/bin/" 2>/dev/null || true
+mkdir -p "$MNT/tmp" && chmod 1777 "$MNT/tmp"
 mount --bind /dev "$MNT/dev"
 mount --bind /proc "$MNT/proc"
 mount --bind /sys "$MNT/sys"
 cp /etc/resolv.conf "$MNT/etc/resolv.conf" 2>/dev/null || true
-chroot "$MNT" /bin/bash -e <<'CHROOT' || warn "dependency install hit an error — check the log above"
+deps_ok=1
+chroot "$MNT" /bin/bash -e <<'CHROOT' || deps_ok=0
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y hostapd dnsmasq iw wpasupplicant isc-dhcp-client avahi-daemon rfkill
-apt-get install -y ustreamer || echo ">> WARN: 'ustreamer' not in apt — install or build it on the device"
+# Under an emulated chroot, apt's unprivileged _apt sandbox user can't write
+# /tmp — that breaks apt-key so 'update' can't refresh, and stale indexes then
+# 404. Run apt as root to avoid it.
+APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none"
+$APT update
+$APT install -y hostapd dnsmasq iw wpasupplicant isc-dhcp-client avahi-daemon rfkill
+$APT install -y ustreamer || echo ">> NOTE: 'ustreamer' not in apt — build it on the device (see docs)"
 CHROOT
 umount "$MNT/dev" "$MNT/proc" "$MNT/sys" 2>/dev/null || true
 rm -f "$MNT/usr/bin/qemu-arm-static"
+[[ "$deps_ok" == 1 ]] || warn "DEPENDENCY INSTALL FAILED — hostapd/dnsmasq/etc are NOT installed; the box won't host the hotspot until you fix apt (network?) and re-run this script."
 
 # --- enable the services for boot (offline, via the host systemctl) ---------
 info "enabling services for first boot"
@@ -387,6 +394,12 @@ else
 fi
 
 sync
+if [[ "${deps_ok:-1}" != 1 ]]; then
+    info "FINISHED WITH ERRORS — dependencies did not install (see the WARN above)."
+    echo "Fix networking / apt on this PC and re-run the script (skip --image; the"
+    echo "card is already flashed) to complete the install before using the board."
+    exit 1
+fi
 info "done."
 echo
 echo "Insert the card into the Luckfox Lyra Zero W and power it on."

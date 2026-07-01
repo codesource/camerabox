@@ -123,11 +123,15 @@ sudo cp /etc/resolv.conf /mnt/lyra/etc/resolv.conf
 ```sh
 sudo install -D -m0755 ./camera-box-luckfox-lyra-zero-w /mnt/lyra/usr/local/bin/camera-box
 
+sudo mkdir -p /mnt/lyra/tmp && sudo chmod 1777 /mnt/lyra/tmp
 sudo chroot /mnt/lyra /bin/bash -e <<'EOF'
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y hostapd dnsmasq iw wpasupplicant isc-dhcp-client avahi-daemon rfkill
-apt-get install -y ustreamer || echo "ustreamer not in apt — build it (see Troubleshooting)"
+# run apt as root — its unprivileged _apt sandbox user can't write /tmp under
+# an emulated chroot, which breaks apt-get update (and then packages 404)
+APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none"
+$APT update
+$APT install -y hostapd dnsmasq iw wpasupplicant isc-dhcp-client avahi-daemon rfkill
+$APT install -y ustreamer || echo "ustreamer not in apt — build it (see Troubleshooting)"
 EOF
 ```
 
@@ -289,6 +293,11 @@ iw dev                                         # wlan0 present, type AP
 
   Set `ustreamer_path` in `/etc/camera-box/config.toml` if it lands somewhere
   other than `/usr/bin/ustreamer`.
+- **`apt` in the chroot: `Couldn't create temporary file /tmp/apt.conf…` then
+  `404 Not Found`.** apt dropped to its `_apt` sandbox user, which can't write
+  `/tmp` under emulation, so `apt-get update` couldn't refresh and stale indexes
+  404'd. Run apt as root: `apt-get -o APT::Sandbox::User=root update && …`
+  (and `chmod 1777 /tmp` in the chroot). `prepare-sd.sh` already does this.
 - **Camera not detected.** Confirm `v4l2-ctl --list-devices` shows a `usb-…`
   device; camera-box only manages USB capture devices.
 - **Wi-Fi interface isn't `wlan0`.** camera-box uses the first wireless
