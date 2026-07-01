@@ -41,6 +41,37 @@ warn() { echo ">> WARN: $*" >&2; }
 info() { echo ">> $*"; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing tool: $1"; }
 
+# Sanity-check an image source (local file or URL) BEFORE writing it to the
+# card, so a Git LFS pointer / HTML error page / truncated or misnamed download
+# fails loudly instead of silently corrupting the SD card.
+validate_image() {
+    local src="$1" sample; sample="$(mktemp)"
+    if [[ "$src" =~ ^https?:// ]]; then
+        curl -fsL "$src" 2>/dev/null | head -c 2048 > "$sample" || true
+    else
+        local sz; sz="$(stat -c%s "$src" 2>/dev/null || echo 0)"
+        [[ "${sz:-0}" -ge 1048576 ]] || { rm -f "$sample"; die "'$src' is only ${sz} bytes — too small to be a disk image (probably a Git LFS pointer or an error page). Re-download it."; }
+        head -c 2048 "$src" > "$sample" 2>/dev/null || { rm -f "$sample"; die "cannot read $src"; }
+    fi
+    [[ -s "$sample" ]] || { rm -f "$sample"; die "could not read/fetch $src"; }
+
+    if head -c 128 "$sample" | grep -qa 'git-lfs.github.com'; then
+        rm -f "$sample"; die "'$src' is a Git LFS *pointer*, not the image. Download from the github.com/.../raw/ link with 'curl -fL' — raw.githubusercontent.com returns the pointer."
+    fi
+    if head -c 128 "$sample" | grep -qai '<!doctype\|<html\|<?xml'; then
+        rm -f "$sample"; die "'$src' looks like an HTML page, not an image — check the download URL."
+    fi
+
+    local sig; sig="$(od -An -tx1 -N6 "$sample" 2>/dev/null | tr -d ' \n')"
+    rm -f "$sample"
+    case "$src" in
+        *.bz2) [[ "$sig" == 425a68* ]]       || die "'$src' is not a bzip2 file (magic '$sig') — re-download it (see README)." ;;
+        *.gz)  [[ "$sig" == 1f8b* ]]         || die "'$src' is not a gzip file (magic '$sig') — re-download it." ;;
+        *.xz)  [[ "$sig" == fd377a585a00* ]] || die "'$src' is not an xz file (magic '$sig') — re-download it." ;;
+        *) : ;;  # raw .img/.raw: the size + text checks above are the guard
+    esac
+}
+
 usage() {
     awk 'NR>=2 && /^#/{sub(/^# ?/,"");print;next} NR>=2{exit}' "$0"
     exit "${1:-0}"
@@ -100,6 +131,8 @@ partof() { local d="$1" n="$2"; [[ "$d" == *[0-9] ]] && echo "${d}p${n}" || echo
 if [[ -n "$IMAGE" ]]; then
     is_url=""; [[ "$IMAGE" =~ ^https?:// ]] && is_url=1
     [[ -n "$is_url" || -f "$IMAGE" ]] || die "image not found: $IMAGE"
+    info "checking the image before writing..."
+    validate_image "$IMAGE"
     # pick a decompressor from the file extension (stream, don't buffer to disk)
     case "$IMAGE" in
         *.xz)        need xz;    decomp=(xz -dc) ;;
