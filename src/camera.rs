@@ -109,6 +109,9 @@ pub struct AppState {
     pub persist: Mutex<PersistState>,
     /// Credentials + sessions for the web UI.
     pub auth: crate::auth::Auth,
+    /// Access-point (hotspot) settings, mirrored to `ap_path`.
+    pub ap: Mutex<crate::config::ApConfig>,
+    pub ap_path: PathBuf,
 }
 
 impl AppState {
@@ -117,6 +120,8 @@ impl AppState {
         persist: PersistState,
         state_path: PathBuf,
         auth: crate::auth::Auth,
+        ap: crate::config::ApConfig,
+        ap_path: PathBuf,
     ) -> Self {
         Self {
             config: Arc::new(config),
@@ -125,6 +130,8 @@ impl AppState {
             cameras: RwLock::new(Vec::new()),
             persist: Mutex::new(persist),
             auth,
+            ap: Mutex::new(ap),
+            ap_path,
         }
     }
 }

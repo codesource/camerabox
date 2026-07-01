@@ -92,6 +92,53 @@ pub struct PersistState {
     pub cameras: BTreeMap<String, CameraPersist>,
 }
 
+/// Access-point (hotspot) settings, editable from the dashboard and persisted
+/// to `/var/lib/camera-box/network.toml` so the configured SSID/password (and,
+/// later, the AP IP) survive a reboot. Defaults match the factory hostapd
+/// provisioning so an install with no saved file behaves exactly as before.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ApConfig {
+    pub ssid: String,
+    pub password: String,
+}
+
+impl Default for ApConfig {
+    fn default() -> Self {
+        Self {
+            ssid: "CameraBox".to_string(),
+            password: "CameraBox123".to_string(),
+        }
+    }
+}
+
+impl ApConfig {
+    pub fn load(path: &Path) -> Self {
+        match std::fs::read_to_string(path) {
+            Ok(s) => match toml::from_str(&s) {
+                Ok(cfg) => {
+                    info!(path = %path.display(), "loaded access-point config");
+                    cfg
+                }
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "invalid AP config; using defaults");
+                    Self::default()
+                }
+            },
+            Err(_) => Self::default(),
+        }
+    }
+
+    pub fn save(&self, path: &Path) -> io::Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let body =
+            toml::to_string_pretty(self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        std::fs::write(path, body)
+    }
+}
+
 impl PersistState {
     pub fn load(path: &Path) -> Self {
         match std::fs::read_to_string(path) {

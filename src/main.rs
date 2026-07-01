@@ -24,7 +24,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use camera::AppState;
-use config::{Config, PersistState};
+use config::{ApConfig, Config, PersistState};
 
 /// Default location of the optional configuration file.
 const CONFIG_PATH: &str = "/etc/camera-box/config.toml";
@@ -32,6 +32,8 @@ const CONFIG_PATH: &str = "/etc/camera-box/config.toml";
 const STATE_PATH: &str = "/var/lib/camera-box/state.toml";
 /// Where the web-UI credentials are stored.
 const AUTH_PATH: &str = "/var/lib/camera-box/auth.toml";
+/// Where the hotspot (AP) SSID/password/IP are persisted.
+const AP_PATH: &str = "/var/lib/camera-box/network.toml";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -58,17 +60,29 @@ async fn main() -> anyhow::Result<()> {
 
     let persist = PersistState::load(Path::new(STATE_PATH));
     let auth = auth::Auth::load(std::path::PathBuf::from(AUTH_PATH));
+    let ap = ApConfig::load(Path::new(AP_PATH));
+
+    // Keep the on-disk AP config files in sync with the saved settings so a
+    // reboot brings the hotspot up with the configured SSID/password/IP. This
+    // does not restart anything, so it never disturbs the current network mode.
+    if let Some(iface) = net::primary_wifi() {
+        if let Err(e) = net::sync_ap_config(&iface, &ap) {
+            tracing::warn!(error = %e, "could not sync AP config files");
+        }
+    }
+    // Ensure AP (dnsmasq) clients can resolve <hostname>.local in hotspot mode.
+    if let Err(e) = net::write_ap_hostname_mapping(&net::current_hostname()) {
+        tracing::warn!(error = %e, "could not write AP hostname mapping");
+    }
+
     let state = Arc::new(AppState::new(
         config,
         persist,
         std::path::PathBuf::from(STATE_PATH),
         auth,
+        ap,
+        std::path::PathBuf::from(AP_PATH),
     ));
-
-    // Ensure AP (dnsmasq) clients can resolve <hostname>.local in hotspot mode.
-    if let Err(e) = net::write_ap_hostname_mapping(&net::current_hostname()) {
-        tracing::warn!(error = %e, "could not write AP hostname mapping");
-    }
 
     // Background task: uevent hotplug detection + ustreamer supervision.
     tokio::spawn(camera::run(state.clone()));

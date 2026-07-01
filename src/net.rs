@@ -22,8 +22,11 @@ use tokio::process::Command;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
+use crate::config::ApConfig;
+
 const PROFILE_DIR: &str = "/etc/camera-box/wifi";
 const AP_IP_CIDR: &str = "192.168.4.1/24";
+const HOSTAPD_CONF: &str = "/etc/hostapd/hostapd.conf";
 
 pub type NetResult<T> = Result<T, String>;
 
@@ -141,6 +144,11 @@ pub fn wifi_interfaces() -> Vec<String> {
     }
     out.sort();
     out
+}
+
+/// The primary (built-in, AP-capable) wireless interface, if any.
+pub fn primary_wifi() -> Option<String> {
+    wifi_interfaces().into_iter().next()
 }
 
 pub async fn status() -> NetworkStatus {
@@ -280,9 +288,13 @@ pub async fn scan(iface: &str) -> NetResult<Vec<ScanResult>> {
 // Access-point mode (primary interface only)
 // ---------------------------------------------------------------------------
 
-pub async fn start_hotspot(iface: &str) -> NetResult<()> {
+pub async fn start_hotspot(iface: &str, ap: &ApConfig) -> NetResult<()> {
     validate_iface(iface)?;
-    info!(iface, "switching to hotspot (AP) mode");
+    validate_ap(ap)?;
+    info!(iface, ssid = %ap.ssid, "switching to hotspot (AP) mode");
+
+    // Regenerate hostapd's config from the saved SSID/password before (re)start.
+    write_hostapd_conf(iface, ap)?;
 
     stop_client(iface).await;
     // Wi-Fi can be rfkill soft-blocked (especially after a reboot); unblock it
@@ -297,12 +309,80 @@ pub async fn start_hotspot(iface: &str) -> NetResult<()> {
     // unit, which fails if the link was rfkill-blocked at boot.
     sh_ok("ip", &["addr", "add", AP_IP_CIDR, "dev", iface]).await;
 
+    // hostapd ships masked on Raspberry Pi OS; make sure both can start.
+    sh_ok("systemctl", &["unmask", "hostapd", "dnsmasq"]).await;
     // Restart dnsmasq AFTER the address is set, or it logs "DHCP packet
     // received on <iface> which has no address" and hands out no leases.
     sh("systemctl", &["restart", "dnsmasq"]).await?;
     sh("systemctl", &["restart", "hostapd"]).await?;
     info!(iface, "hotspot active");
     Ok(())
+}
+
+/// Save/apply new AP settings without necessarily switching mode: rewrite
+/// `hostapd.conf`, and if this interface is currently serving the AP, restart
+/// `hostapd` so the change (e.g. a new SSID) takes effect immediately.
+pub async fn apply_ap(iface: &str, ap: &ApConfig) -> NetResult<()> {
+    validate_iface(iface)?;
+    validate_ap(ap)?;
+    write_hostapd_conf(iface, ap)?;
+    if interface_status(iface).await.mode == "ap" {
+        sh("systemctl", &["restart", "hostapd"]).await?;
+        info!(iface, ssid = %ap.ssid, "applied new hotspot settings");
+    }
+    Ok(())
+}
+
+/// Regenerate the on-disk AP config files from the saved settings so a reboot
+/// brings the hotspot up with the configured SSID/password. Does **not** restart
+/// any service — safe to call at daemon startup without changing the live mode.
+pub fn sync_ap_config(iface: &str, ap: &ApConfig) -> NetResult<()> {
+    write_hostapd_conf(iface, ap)
+}
+
+/// Validate SSID/passphrase against the WPA2-PSK limits.
+pub fn validate_ap(ap: &ApConfig) -> NetResult<()> {
+    let ssid_len = ap.ssid.len();
+    if ssid_len == 0 || ssid_len > 32 {
+        return Err("hotspot name (SSID) must be 1–32 characters".into());
+    }
+    if ap.ssid.contains(['\n', '\r']) || ap.password.contains(['\n', '\r']) {
+        return Err("hotspot name/password must not contain line breaks".into());
+    }
+    let pw_len = ap.password.len();
+    if !(8..=63).contains(&pw_len) {
+        return Err("hotspot password must be 8–63 characters".into());
+    }
+    Ok(())
+}
+
+/// Write `/etc/hostapd/hostapd.conf` from the saved AP settings. Fixed radio
+/// parameters (band/channel/country) match the factory provisioning.
+fn write_hostapd_conf(iface: &str, ap: &ApConfig) -> NetResult<()> {
+    let body = format!(
+        "country_code=CH\n\
+         interface={iface}\n\
+         driver=nl80211\n\
+         \n\
+         ssid={ssid}\n\
+         \n\
+         hw_mode=g\n\
+         channel=6\n\
+         \n\
+         ieee80211n=1\n\
+         wmm_enabled=1\n\
+         auth_algs=1\n\
+         ignore_broadcast_ssid=0\n\
+         \n\
+         wpa=2\n\
+         wpa_passphrase={pass}\n\
+         wpa_key_mgmt=WPA-PSK\n\
+         rsn_pairwise=CCMP\n",
+        iface = iface,
+        ssid = ap.ssid,
+        pass = ap.password,
+    );
+    write_secure(Path::new(HOSTAPD_CONF), &body)
 }
 
 async fn stop_hotspot() {
