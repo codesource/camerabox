@@ -9,8 +9,11 @@
 # It will interactively let you PICK the SD card. Optionally pass --image to
 # flash a raw image first.
 #
-#   sudo bash scripts/prepare-sd.sh [--binary ./camera-box] [--image FILE|URL] \
+#   sudo bash scripts/prepare-sd.sh [--binary ./camera-box | --no-binary] [--image FILE|URL] \
 #                                   [--ssid NAME] [--pass SECRET] [--ip 192.168.4.1/24]
+#
+# With no --binary it lists the release binaries and lets you pick one (or 's'
+# to skip). --no-binary provisions deps + config only, for a binary you add later.
 #
 # --image accepts a local file OR an http(s) URL, and .img / .img.xz / .img.bz2
 # / .img.gz (it streams + decompresses on the fly). So the whole flow — flash
@@ -35,6 +38,7 @@ AP_PASS="CameraBox123"
 AP_IP="192.168.4.1/24"
 BINARY=""
 IMAGE=""
+NOBIN=""
 REPO="codesource/camerabox"
 MNT=""
 
@@ -83,6 +87,7 @@ usage() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --binary) BINARY="${2:-}"; shift 2 ;;
+        --no-binary) NOBIN=1; shift ;;
         --image)  IMAGE="${2:-}";  shift 2 ;;
         --ssid)   AP_SSID="${2:-}"; shift 2 ;;
         --pass)   AP_PASS="${2:-}"; shift 2 ;;
@@ -210,9 +215,13 @@ pick_binary() {
         local tag=""; case "${names[$i]}" in *luckfox*|*armv7*) tag="  (recommended for the Lyra)";; esac
         printf "  [%d] %s%s\n" "$i" "${names[$i]}" "$tag"
     done
+    echo "  [s] skip — provision deps + config only (add the binary later)"
     local sel
-    read -rp "Select a binary number [default $def]: " sel
+    read -rp "Select a number, or 's' to skip [default $def]: " sel
     sel="${sel:-$def}"
+    case "$sel" in
+        s|S|skip) NOBIN=1; info "skipping the binary — deps + config only"; return ;;
+    esac
     [[ "$sel" =~ ^[0-9]+$ && -n "${names[$sel]:-}" ]] || die "invalid selection"
     local asset="${names[$sel]}"
     BINARY="$(mktemp)"
@@ -221,10 +230,12 @@ pick_binary() {
         || die "download failed for $asset — pass a local build with --binary"
 }
 
-if [[ -z "$BINARY" ]]; then
+if [[ -z "$NOBIN" && -z "$BINARY" ]]; then
     pick_binary
 fi
-[[ -s "$BINARY" ]] || die "binary '$BINARY' is missing or empty — pass a real camera-box build with --binary."
+if [[ -z "$NOBIN" ]]; then
+    [[ -s "$BINARY" ]] || die "binary '$BINARY' is missing or empty — pass a real camera-box build with --binary (or --no-binary to skip)."
+fi
 
 # --- mount the rootfs (with cleanup on exit) --------------------------------
 MNT="$(mktemp -d)"
@@ -241,8 +252,13 @@ mount "$ROOTP" "$MNT"
 [[ -d "$MNT/etc" && -d "$MNT/usr" ]] || die "partition 3 doesn't look like a Linux root filesystem"
 
 # --- install the binary -----------------------------------------------------
-info "installing camera-box -> /usr/local/bin/camera-box"
-install -D -m 0755 "$BINARY" "$MNT/usr/local/bin/camera-box"
+if [[ -n "$NOBIN" ]]; then
+    warn "no binary installed — place one at /usr/local/bin/camera-box on the device"
+    warn "(e.g. the installer, or copy your build) before camera-box will run."
+else
+    info "installing camera-box -> /usr/local/bin/camera-box"
+    install -D -m 0755 "$BINARY" "$MNT/usr/local/bin/camera-box"
+fi
 
 # --- write the AP + service config (matches what camera-box generates) ------
 ip="${AP_IP%/*}"; net3="${ip%.*}"
@@ -409,6 +425,11 @@ if [[ "${deps_ok:-1}" != 1 ]]; then
 fi
 info "done."
 echo
+if [[ -n "$NOBIN" ]]; then
+    echo "NOTE: no camera-box binary was installed. Dependencies + hotspot config"
+    echo "are in place; add /usr/local/bin/camera-box on the device to finish."
+    echo
+fi
 echo "Insert the card into the Luckfox Lyra Zero W and power it on."
 echo "It should host the '$AP_SSID' Wi-Fi hotspot; connect and browse:"
 echo "    http://$ip/    (login: admin / password)"
