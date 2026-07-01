@@ -21,8 +21,10 @@
 #     --binary ./camera-box-luckfox-lyra-zero-w
 #
 # Requires: qemu-user-static + binfmt-support (for the ARM chroot), parted,
-# e2fsprogs, and a modern systemctl (offline --root enable). On Debian/Ubuntu:
-#   sudo apt install qemu-user-static binfmt-support parted e2fsprogs
+# e2fsprogs, growpart/sgdisk (to grow the rootfs), and a modern systemctl
+# (offline --root enable). On Debian/Ubuntu:
+#   sudo apt install qemu-user-static binfmt-support parted e2fsprogs \
+#                    cloud-guest-utils gdisk curl
 #
 # NOTE: developed against the Pi build; not yet verified on Lyra hardware.
 set -euo pipefail
@@ -160,7 +162,21 @@ ROOTP="$(partof "$DEV" 3)"
 # --- grow the rootfs to fill the card (image ships nearly full) --------------
 if lsblk -lno NAME "$DEV" | tail -1 | grep -q "$(basename "$ROOTP")"; then
     info "growing rootfs $ROOTP to fill the card"
-    parted -s "$DEV" resizepart 3 100% || warn "resizepart failed (continuing)"
+    # A small image dd'd onto a big card leaves GPT's backup header stranded
+    # mid-disk, so parted can't grow the partition. Move it to the end first.
+    if command -v sgdisk >/dev/null 2>&1; then
+        sgdisk -e "$DEV" >/dev/null 2>&1 || true
+        partprobe "$DEV" 2>/dev/null || true; sleep 1
+    fi
+    if command -v growpart >/dev/null 2>&1; then
+        growpart "$DEV" 3 || warn "growpart failed (continuing)"
+    elif parted -s "$DEV" resizepart 3 100%; then
+        :
+    else
+        warn "could not grow partition 3 — install 'cloud-guest-utils' (growpart) or"
+        warn "'gdisk' (sgdisk) and re-run, otherwise the rootfs stays small and apt"
+        warn "may run out of space."
+    fi
     partprobe "$DEV" 2>/dev/null || true; sleep 1
     e2fsck -fy "$ROOTP" || true
     resize2fs "$ROOTP" || warn "resize2fs failed (apt may run out of space)"
@@ -178,7 +194,7 @@ if [[ -z "$BINARY" ]]; then
     done
     [[ -n "$ok" ]] || die "could not download a binary — pass one with --binary"
 fi
-[[ -s "$BINARY" ]] || die "binary is empty: $BINARY"
+[[ -s "$BINARY" ]] || die "binary '$BINARY' is missing or empty — omit --binary to auto-download it from the latest release, or point --binary at a real camera-box build."
 
 # --- mount the rootfs (with cleanup on exit) --------------------------------
 MNT="$(mktemp -d)"

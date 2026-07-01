@@ -90,7 +90,8 @@ No repo clone needed — grab just the one script (it downloads the camera-box
 binary from the latest release itself):
 
 ```sh
-sudo apt install qemu-user-static binfmt-support parted e2fsprogs curl   # one-time
+sudo apt install qemu-user-static binfmt-support parted e2fsprogs \
+                 cloud-guest-utils gdisk curl                        # one-time
 curl -fsSL https://raw.githubusercontent.com/codesource/camerabox/main/scripts/prepare-sd.sh -o prepare-sd.sh
 
 # flash the Ubuntu image AND provision, in one command (--image takes a URL or file):

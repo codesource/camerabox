@@ -45,7 +45,8 @@ picker prompt has nowhere to read from):
 
 ```sh
 # one-time: tools for the ARM chroot + partitioning
-sudo apt install qemu-user-static binfmt-support parted e2fsprogs curl
+sudo apt install qemu-user-static binfmt-support parted e2fsprogs \
+                 cloud-guest-utils gdisk curl
 
 # grab just the script:
 curl -fsSL https://raw.githubusercontent.com/codesource/camerabox/main/scripts/prepare-sd.sh -o prepare-sd.sh
@@ -88,11 +89,15 @@ sync
 
 ### 2. Grow the root filesystem
 
-The image ships nearly full; make room for the packages.
+The image ships nearly full; make room for the packages. A small image `dd`'d
+onto a bigger card strands GPT's backup header mid-disk, so move it to the end
+first (`sgdisk -e`), then grow:
 
 ```sh
+sudo apt install cloud-guest-utils gdisk    # growpart + sgdisk
+sudo sgdisk -e /dev/sdX                      # relocate GPT backup header to the end
 sudo partprobe /dev/sdX
-sudo parted -s /dev/sdX resizepart 3 100%
+sudo growpart /dev/sdX 3                      # grow partition 3 to fill the card
 sudo e2fsck -fy /dev/sdX3
 sudo resize2fs /dev/sdX3
 ```
