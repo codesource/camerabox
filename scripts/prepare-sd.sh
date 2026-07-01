@@ -371,6 +371,8 @@ export DEBIAN_FRONTEND=noninteractive
 # pre-written config files without the interactive dpkg conffile prompt
 # (--force-conf* — there is no terminal to answer it).
 APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef"
+# recover any half-configured packages left by an earlier interrupted run
+dpkg --configure -a --force-confold --force-confdef 2>/dev/null || true
 $APT update
 $APT install -y hostapd dnsmasq iw wpasupplicant isc-dhcp-client avahi-daemon rfkill
 $APT install -y ustreamer || echo ">> NOTE: 'ustreamer' not in apt — build it on the device (see docs)"
