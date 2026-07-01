@@ -412,7 +412,21 @@ mount --bind /dev "$MNT/dev"
 mkdir -p "$MNT/dev/pts"; mount -t devpts devpts "$MNT/dev/pts" 2>/dev/null || true
 mount --bind /proc "$MNT/proc"
 mount --bind /sys "$MNT/sys"
-cp /etc/resolv.conf "$MNT/etc/resolv.conf" 2>/dev/null || true
+# DNS for the emulated chroot. Debian/Armbian point resolv.conf at the
+# systemd-resolved stub (127.0.0.53) and use the 'resolve' NSS module, which
+# can't work under qemu (resolved isn't running here) — apt then fails with
+# getaddrinfo "Device or resource busy". Swap in a plain resolver + nsswitch
+# for the duration and restore them afterwards.
+resolv_bak=""; nss_bak=""
+if [[ -e "$MNT/etc/resolv.conf" || -L "$MNT/etc/resolv.conf" ]]; then
+    cp -a "$MNT/etc/resolv.conf" "$MNT/etc/resolv.conf.camerabox-bak" && resolv_bak=1
+fi
+rm -f "$MNT/etc/resolv.conf"
+printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > "$MNT/etc/resolv.conf"
+if [[ -f "$MNT/etc/nsswitch.conf" ]] && grep -q '^hosts:.*resolve' "$MNT/etc/nsswitch.conf"; then
+    cp -a "$MNT/etc/nsswitch.conf" "$MNT/etc/nsswitch.conf.camerabox-bak" && nss_bak=1
+    sed -i 's/^hosts:.*/hosts: files dns/' "$MNT/etc/nsswitch.conf"
+fi
 deps_ok=1
 chroot "$MNT" /bin/bash -e <<'CHROOT' || deps_ok=0
 export DEBIAN_FRONTEND=noninteractive
@@ -430,6 +444,9 @@ CHROOT
 umount "$MNT/dev/pts" 2>/dev/null || true
 umount "$MNT/dev" "$MNT/proc" "$MNT/sys" 2>/dev/null || true
 rm -f "$MNT/usr/bin/qemu-arm-static"
+# restore the image's original resolv.conf / nsswitch
+[[ -n "$resolv_bak" ]] && mv -f "$MNT/etc/resolv.conf.camerabox-bak" "$MNT/etc/resolv.conf" || true
+[[ -n "$nss_bak" ]] && mv -f "$MNT/etc/nsswitch.conf.camerabox-bak" "$MNT/etc/nsswitch.conf" || true
 [[ "$deps_ok" == 1 ]] || warn "DEPENDENCY INSTALL FAILED — hostapd/dnsmasq/etc are NOT installed; the box won't host the hotspot until you fix apt (network?) and re-run this script."
 
 # --- enable the services for boot (offline, via the host systemctl) ---------

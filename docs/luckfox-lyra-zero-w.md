@@ -116,7 +116,11 @@ sudo mount --bind /dev  /mnt/lyra/dev
 sudo mount -t devpts devpts /mnt/lyra/dev/pts
 sudo mount --bind /proc /mnt/lyra/proc
 sudo mount --bind /sys  /mnt/lyra/sys
-sudo cp /etc/resolv.conf /mnt/lyra/etc/resolv.conf
+# working DNS for the chroot (Debian/Armbian's systemd-resolved stub +
+# nss-resolve don't work under qemu — apt would fail with getaddrinfo EBUSY)
+sudo rm -f /mnt/lyra/etc/resolv.conf
+echo 'nameserver 1.1.1.1' | sudo tee /mnt/lyra/etc/resolv.conf >/dev/null
+sudo sed -i 's/^hosts:.*/hosts: files dns/' /mnt/lyra/etc/nsswitch.conf 2>/dev/null || true
 ```
 
 ### 4. Install camera-box + dependencies
