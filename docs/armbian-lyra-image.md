@@ -1,17 +1,23 @@
 # Building a ready-to-run Armbian image for the Luckfox Lyra Zero W
 
-This is the **recommended** way to get camera-box onto the Lyra Zero W: use the
+> **You probably don't need this.** Building a kernel is only necessary if the
+> **prebuilt** Armbian image's kernel lacks UVC — and Armbian kernels usually
+> include it. Try the fast path first:
+>
+> 1. Flash the prebuilt **Armbian minimal** image, erase the SPI flash, and
+>    configure it with `prepare-sd.sh` (installs camera-box + deps + the hotspot,
+>    and sets up a headless AP-only first boot). No build.
+> 2. Boot it and run `sudo modprobe uvcvideo && ls /dev/video*`.
+> 3. **If `/dev/video0` appears, you're done** — never build anything.
+> 4. **Only if it doesn't** (kernel without UVC) do you need this guide.
+
+If you got here because UVC is genuinely missing, this uses the
 [Armbian build framework](https://github.com/armbian/build) to bake a custom
 image that already contains a **UVC-enabled kernel**, **camera-box + its
 dependencies**, and the **hotspot config** — so you flash it, erase the SPI
 flash once, and it boots straight into the appliance. No `prepare-sd.sh`, no
-qemu-chroot hacks, no on-device setup.
-
-It solves both Lyra problems at once:
-
-- **systemd + apt** — Armbian has them, so camera-box runs unmodified.
-- **USB cameras** — Armbian's kernel is general-purpose; enable UVC in the build
-  and `/dev/video0` works (the stock RK3506 kernels omit it).
+qemu-chroot hacks, no on-device setup — and it enables UVC in the kernel, which
+configuring a prebuilt image cannot do.
 
 > One-time build on a Linux PC (Ubuntu 24.04 or Docker), ~50 GB disk, a couple of
 > hours. After that you have a reproducible image you can reflash anytime.

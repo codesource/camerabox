@@ -10,7 +10,8 @@
 # flash a raw image first.
 #
 #   sudo bash scripts/prepare-sd.sh [--binary ./camera-box | --no-binary] [--image FILE|URL] \
-#                                   [--ssid NAME] [--pass SECRET] [--ip 192.168.4.1/24]
+#                                   [--ssid NAME] [--pass SECRET] [--ip 192.168.4.1/24] \
+#                                   [--root-pass SECRET] [--grow]
 #
 # With no --binary it lists the release binaries and lets you pick one (or 's'
 # to skip). --no-binary provisions deps + config only, for a binary you add later.
@@ -36,6 +37,7 @@ set -euo pipefail
 AP_SSID="CameraBox"
 AP_PASS="CameraBox123"
 AP_IP="192.168.4.1/24"
+ROOT_PASS="camerabox"   # headless Armbian: preset root login (SSH over the AP)
 BINARY=""
 IMAGE=""
 NOBIN=""
@@ -94,6 +96,7 @@ while [[ $# -gt 0 ]]; do
         --ssid)   AP_SSID="${2:-}"; shift 2 ;;
         --pass)   AP_PASS="${2:-}"; shift 2 ;;
         --ip)     AP_IP="${2:-}";   shift 2 ;;
+        --root-pass) ROOT_PASS="${2:-}"; shift 2 ;;
         -h|--help) usage 0 ;;
         *) die "unknown argument: $1 (see --help)" ;;
     esac
@@ -428,6 +431,22 @@ if [[ -d "$MNT/etc/NetworkManager" ]]; then
         > "$MNT/etc/NetworkManager/conf.d/camera-box.conf"
 fi
 
+# Headless AP-only first boot (Armbian). Armbian's stock first boot runs an
+# interactive account-creation wizard and force-expires root; on a console-less,
+# hotspot-only device that leaves it unreachable. Preset a root login, skip the
+# wizard, enable ssh, and don't wait for a (non-existent) uplink at boot.
+if [[ -f "$MNT/etc/armbian-release" || -e "$MNT/root/.not_logged_in_yet" ]]; then
+    info "configuring Armbian for headless AP-only first boot (root pw: $ROOT_PASS)"
+    echo "root:$ROOT_PASS" | chpasswd --root "$MNT" 2>/dev/null \
+        || chroot "$MNT" /bin/bash -c "echo 'root:$ROOT_PASS' | chpasswd" 2>/dev/null \
+        || warn "could not preset the root password"
+    rm -f "$MNT/root/.not_logged_in_yet"
+    systemctl --root="$MNT" enable ssh >/dev/null 2>&1 \
+        || systemctl --root="$MNT" enable sshd >/dev/null 2>&1 || true
+    systemctl --root="$MNT" disable systemd-networkd-wait-online.service \
+        NetworkManager-wait-online.service >/dev/null 2>&1 || true
+fi
+
 # --- install runtime dependencies inside the ARM rootfs (qemu chroot) -------
 info "installing dependencies in the ARM rootfs (emulated — slow)"
 cp /usr/bin/qemu-arm-static "$MNT/usr/bin/" 2>/dev/null || true
@@ -506,8 +525,15 @@ if [[ -n "$NOBIN" ]]; then
     echo
 fi
 echo "Insert the card into the Luckfox Lyra Zero W and power it on."
-echo "It should host the '$AP_SSID' Wi-Fi hotspot; connect and browse:"
-echo "    http://$ip/    (login: admin / password)"
+echo "(On a Rockchip board you may need to erase the onboard SPI flash once so it"
+echo " boots from the SD card — see docs/luckfox-lyra-zero-w.md.)"
+echo "It should host the '$AP_SSID' Wi-Fi hotspot; connect, then:"
+echo "    http://$ip/            dashboard (login: admin / password)"
+if [[ -f "$MNT/etc/armbian-release" || -e "$MNT/root/.not_logged_in_yet" ]]; then
+    echo "    ssh root@$ip     (password: $ROOT_PASS — change it)"
+fi
 echo
-echo "Verify on the device: 'systemctl status camera-box hostapd', a USB camera"
-echo "as /dev/video0, and 'which ustreamer'."
+echo "Then verify the camera works (the key unknown on this board):"
+echo "    sudo modprobe uvcvideo && ls -l /dev/video*"
+echo "If /dev/video0 does NOT appear, the kernel lacks UVC — build a UVC-enabled"
+echo "image (see docs/armbian-lyra-image.md). Everything else already works."
