@@ -64,13 +64,18 @@ jobs:
           The Luckfox Lyra Zero W needs a systemd image (the Ubuntu image, not
           Buildroot/BusyBox). Its binary is identical to the Pi Zero 2 W 32-bit one.
 
-          ## Install (Pi Zero W v1.1)
+          ## Install (one line — no repo clone)
+
+          Run on the device with your board's name:
 
           ```sh
-          sudo git clone https://github.com/codesource/camerabox.git /opt/camera-box
-          wget https://github.com/codesource/camerabox/releases/latest/download/camera-box-pi-zero-w-armv6 -O /tmp/camera-box
-          sudo bash /opt/camera-box/scripts/install.sh /tmp/camera-box
+          curl -fsSL https://raw.githubusercontent.com/codesource/camerabox/main/scripts/install.sh \
+            | sudo bash -s -- pi-zero-w-armv6
           ```
+
+          Board names: `pi-zero-w-armv6`, `pi-zero-2w-armv7`, `pi-zero-2w-arm64`,
+          `luckfox-lyra-zero-w`. The installer downloads the matching asset, installs
+          the dependencies, and starts the service.
 
           Verify downloads against `SHA256SUMS`.
           EOF
