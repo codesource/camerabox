@@ -39,6 +39,7 @@ AP_IP="192.168.4.1/24"
 BINARY=""
 IMAGE=""
 NOBIN=""
+GROW=""
 REPO="codesource/camerabox"
 MNT=""
 
@@ -88,6 +89,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --binary) BINARY="${2:-}"; shift 2 ;;
         --no-binary) NOBIN=1; shift ;;
+        --grow) GROW=1; shift ;;
         --image)  IMAGE="${2:-}";  shift 2 ;;
         --ssid)   AP_SSID="${2:-}"; shift 2 ;;
         --pass)   AP_PASS="${2:-}"; shift 2 ;;
@@ -216,12 +218,18 @@ ROOTNUM="${ROOTP##*[!0-9]}"
 umount "$ROOTP" 2>/dev/null || true   # the desktop may have auto-mounted it
 info "root filesystem: $ROOTP"
 
-# --- grow the rootfs to fill the card (only if it's the last partition) ------
+# --- grow the rootfs (opt-in) ------------------------------------------------
+# Off by default: most images (Armbian, Raspberry Pi OS, ...) auto-expand the
+# rootfs on first boot, and rewriting the partition table here can disturb the
+# board's boot layout (Rockchip u-boot lives just before the first partition).
+# Pass --grow only for images that ship a full, non-resizing rootfs.
 lastpart="$(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{n=$1} END{print n}')"
-if [[ "$ROOTP" == "$lastpart" ]]; then
+if [[ -z "$GROW" ]]; then
+    info "not resizing the card (most images auto-expand on first boot; use --grow to force)"
+elif [[ "$ROOTP" != "$lastpart" ]]; then
+    warn "rootfs $ROOTP is not the last partition — skipping --grow"
+else
     info "growing rootfs $ROOTP to fill the card"
-    # A small image dd'd onto a big card leaves GPT's backup header stranded
-    # mid-disk; move it to the end first so the partition can be grown.
     if command -v sgdisk >/dev/null 2>&1; then
         sgdisk -e "$DEV" >/dev/null 2>&1 || true
         partprobe "$DEV" 2>/dev/null || true; sleep 1
@@ -231,15 +239,11 @@ if [[ "$ROOTP" == "$lastpart" ]]; then
     elif parted -s "$DEV" resizepart "$ROOTNUM" 100%; then
         :
     else
-        warn "could not grow $ROOTP — install 'cloud-guest-utils' (growpart) or 'gdisk'"
-        warn "(sgdisk); otherwise the rootfs stays small and apt may run out of space."
+        warn "could not grow $ROOTP — install 'cloud-guest-utils' (growpart) or 'gdisk'."
     fi
     partprobe "$DEV" 2>/dev/null || true; sleep 1
     e2fsck -fy "$ROOTP" || true
     resize2fs "$ROOTP" || warn "resize2fs failed (apt may run out of space)"
-else
-    warn "rootfs $ROOTP is not the last partition — skipping auto-grow (Armbian and"
-    warn "many images auto-expand the rootfs on first boot anyway)."
 fi
 
 # --- get the camera-box binary ----------------------------------------------
