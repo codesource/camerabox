@@ -1,6 +1,6 @@
 [Unit]
 Description=camera-box USB camera MJPEG appliance
-Documentation=https://github.com/your-org/camera-box
+Documentation=https://github.com/codesource/camerabox
 # The Wi-Fi AP must be up first so clients can reach the streams.
 After=network.target hostapd.service dnsmasq.service
 Wants=hostapd.service dnsmasq.service
