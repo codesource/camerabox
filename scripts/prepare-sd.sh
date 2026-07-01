@@ -9,8 +9,16 @@
 # It will interactively let you PICK the SD card. Optionally pass --image to
 # flash a raw image first.
 #
-#   sudo bash scripts/prepare-sd.sh [--binary ./camera-box] [--image ubuntu.img[.xz|.bz2|.gz]] \
+#   sudo bash scripts/prepare-sd.sh [--binary ./camera-box] [--image FILE|URL] \
 #                                   [--ssid NAME] [--pass SECRET] [--ip 192.168.4.1/24]
+#
+# --image accepts a local file OR an http(s) URL, and .img / .img.xz / .img.bz2
+# / .img.gz (it streams + decompresses on the fly). So the whole flow — flash
+# the Ubuntu image, then provision — can be one command, e.g.:
+#
+#   sudo bash scripts/prepare-sd.sh \
+#     --image https://github.com/platima/SBC-Images/raw/main/Luckfox/Lyra/Lyra%20Zero%20W/<image>.img.bz2 \
+#     --binary ./camera-box-luckfox-lyra-zero-w
 #
 # Requires: qemu-user-static + binfmt-support (for the ARM chroot), parted,
 # e2fsprogs, and a modern systemctl (offline --root enable). On Debian/Ubuntu:
@@ -88,16 +96,25 @@ read -rp "Type YES to continue: " ans
 # partition N of DEV (mmcblk0 -> p3, sdX -> 3)
 partof() { local d="$1" n="$2"; [[ "$d" == *[0-9] ]] && echo "${d}p${n}" || echo "${d}${n}"; }
 
-# --- optional: flash a raw image first --------------------------------------
+# --- optional: flash a raw image first (local file OR http(s) URL) ----------
 if [[ -n "$IMAGE" ]]; then
-    [[ -f "$IMAGE" ]] || die "image not found: $IMAGE"
-    info "flashing $IMAGE -> $DEV (this takes a while)"
+    is_url=""; [[ "$IMAGE" =~ ^https?:// ]] && is_url=1
+    [[ -n "$is_url" || -f "$IMAGE" ]] || die "image not found: $IMAGE"
+    # pick a decompressor from the file extension (stream, don't buffer to disk)
     case "$IMAGE" in
-        *.xz)  need xz;    xz -dc  "$IMAGE" | dd of="$DEV" bs=4M status=progress conv=fsync ;;
-        *.bz2) need bzip2; bzip2 -dc "$IMAGE" | dd of="$DEV" bs=4M status=progress conv=fsync ;;
-        *.gz)  need gzip;  gzip -dc "$IMAGE" | dd of="$DEV" bs=4M status=progress conv=fsync ;;
-        *)     dd if="$IMAGE" of="$DEV" bs=4M status=progress conv=fsync ;;
+        *.xz)        need xz;    decomp=(xz -dc) ;;
+        *.bz2)       need bzip2; decomp=(bzip2 -dc) ;;
+        *.gz)        need gzip;  decomp=(gzip -dc) ;;
+        *.img|*.raw) decomp=(cat) ;;
+        *.rar|*.zip) die "extract $IMAGE first, then pass the resulting .img" ;;
+        *) warn "unrecognised image extension — writing bytes as-is"; decomp=(cat) ;;
     esac
+    info "flashing ${is_url:+and downloading }$IMAGE -> $DEV (this takes a while)"
+    if [[ -n "$is_url" ]]; then
+        curl -fL --retry 3 "$IMAGE" | "${decomp[@]}" | dd of="$DEV" bs=4M status=progress conv=fsync
+    else
+        "${decomp[@]}" "$IMAGE" | dd of="$DEV" bs=4M status=progress conv=fsync
+    fi
     sync
 fi
 

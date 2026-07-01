@@ -98,6 +98,10 @@ password). For a Raspberry Pi the plain [Install](#install-recommended) one-line
 is simpler — this offline route is for boards (like the Lyra) you want fully
 provisioned before first boot.
 
+> Full walkthrough — flashing the Ubuntu image, the automated route, **and** the
+> equivalent manual steps — is in
+> [docs/luckfox-lyra-zero-w.md](docs/luckfox-lyra-zero-w.md).
+
 The installer downloads the right binary, installs the dependencies above, sets
 up and starts the `systemd` service, and writes a default config (it never
 overwrites an existing one). When it finishes, open the dashboard (see
