@@ -5,12 +5,9 @@
 # This file is OPTIONAL. If it is missing, or any key is omitted, the built-in
 # defaults shown below are used.
 
-# Maximum number of cameras streaming at once (also the stream port pool size).
-# All connected USB cameras are listed in the web UI; the first this many are
-# auto-enabled, and you can toggle which ones stream from there.
-max_cameras      = 2
-
-# Port of the first camera stream; cam1 uses base+1, etc.
+# Port of the first camera stream. Each enabled camera takes the next free
+# port above this one; there is no fixed limit on how many can stream (the
+# practical limit is the number of USB cameras you plug in).
 base_stream_port = 8080
 
 # Port for the status web UI and JSON API.

@@ -50,8 +50,9 @@ Browser --HTTP(login)--> web.rs : / (dashboard)  /api/status /api/system
 ```
 
 - **All USB cameras are listed.** A newly-seen camera starts **disabled**; you
-  enable it and choose a resolution/fps in the UI. `max_cameras` caps how many
-  stream **at once** (the stream-port pool, `8080 + n`).
+  enable it and choose a resolution/fps in the UI. Each enabled camera takes the
+  next free stream port (`8080 + n`); there is no fixed cap on how many stream
+  at once.
 - **Only USB video *capture* devices are used.** Nodes are probed with
   `VIDIOC_QUERYCAP` and must report `V4L2_CAP_VIDEO_CAPTURE` **and** a `usb-…`
   bus — so the Pi's on-board `bcm2835-isp`/`-codec` and metadata-only nodes are
@@ -181,7 +182,7 @@ All routes require a session cookie except `GET /login` and `POST /api/login`.
 ## Configuration
 
 See [`config.example.toml`](config.example.toml) — all keys optional. Defaults:
-`max_cameras=2`, `base_stream_port=8080`, `web_port=80`,
+`base_stream_port=8080`, `web_port=80`,
 `device_ip="192.168.4.1"` (fallback only), `ustreamer_path="/usr/bin/ustreamer"`,
 `resolution="1280x720"`, `fps=30`. Login credentials are **not** in this file —
 they live (hashed) in `/var/lib/camera-box/auth.toml`; per-camera choices live in

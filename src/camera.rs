@@ -7,9 +7,9 @@
 //!     are ignored).
 //!   * Enumerate each camera's supported resolutions + frame rates.
 //!   * Detect plug/unplug via the kernel netlink uevent socket (no `libudev`).
-//!   * Track *all* connected USB cameras; auto-enable the first `max_cameras`
-//!     and let the user enable/disable each one. Enabled cameras get a stream
-//!     port and a supervised `ustreamer` process (see [`crate::stream`]).
+//!   * Track *all* connected USB cameras and let the user enable/disable each
+//!     one. Enabled cameras get a stream port and a supervised `ustreamer`
+//!     process (see [`crate::stream`]).
 //!   * Persist per-camera enabled/resolution/fps choices across reboots.
 
 use std::ffi::OsStr;
@@ -331,8 +331,8 @@ async fn handle_add(state: &Arc<AppState>, device: CameraDevice) {
         return; // duplicate notification
     }
 
-    // Desired state: persisted choice if we've seen this camera, else
-    // auto-enable up to max_cameras.
+    // Desired state: persisted choice if we've seen this camera, else start
+    // OFF (the user enables it from the web UI).
     let persisted = {
         let p = state.persist.lock().await;
         p.cameras.get(&device.id).cloned()
@@ -507,7 +507,7 @@ pub async fn set_stream_auth(
     Ok(())
 }
 
-/// Start enabled cameras that aren't streaming yet, up to the port pool size.
+/// Start any enabled camera that isn't streaming yet on a free port.
 ///
 /// Two passes so ports are *sticky*: first reclaim each camera's remembered
 /// (persisted) port when it's still free, then assign the lowest free port to
@@ -539,13 +539,13 @@ fn reconcile(config: &Arc<Config>, cams: &mut [ManagedCamera]) {
 
 fn in_pool(config: &Config, port: u16) -> bool {
     port >= config.base_stream_port
-        && port < config.base_stream_port + config.max_cameras as u16
 }
 
+/// Lowest free port at or above `base_stream_port`. There is no fixed cap: the
+/// practical limit is the number of physically connected USB cameras, so
+/// enabling a camera in the UI always yields a working stream.
 fn first_free_port(config: &Arc<Config>, used: &[u16]) -> Option<u16> {
-    (0..config.max_cameras as u16)
-        .map(|i| config.base_stream_port + i)
-        .find(|p| !used.contains(p))
+    (config.base_stream_port..u16::MAX).find(|p| !used.contains(p))
 }
 
 /// Per-camera persistence snapshot. Async so it can read each settings lock.

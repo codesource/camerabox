@@ -65,9 +65,10 @@ shares it between two halves:
 `AppState.cameras` is a `RwLock<Vec<ManagedCamera>>` listing **all** connected
 USB cameras (ordered by `/dev/videoN`). Each `ManagedCamera` has a desired
 `enabled` flag and, while streaming, a `port` + `CancellationToken`. `reconcile`
-starts enabled-but-not-streaming cameras on the next free port from the pool
-`base_stream_port .. base_stream_port + max_cameras` — so `max_cameras` is the
-**concurrent-stream cap**, not a hard device limit.
+starts enabled-but-not-streaming cameras on the lowest free port at or above
+`base_stream_port`. There is **no fixed concurrent-stream cap** — the practical
+limit is the number of connected USB cameras, so enabling one always yields a
+working stream (ports are sticky: a camera keeps its port until disabled).
 
 Key behaviours:
 

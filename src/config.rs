@@ -15,9 +15,7 @@ use tracing::{info, warn};
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Maximum number of cameras streaming at once (also the port pool size).
-    pub max_cameras: usize,
-    /// Port for the first stream; further streams use base + offset.
+    /// Port for the first stream; further streams use the next free port above.
     pub base_stream_port: u16,
     /// Port for the status web UI / API.
     pub web_port: u16,
@@ -35,7 +33,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            max_cameras: 2,
             base_stream_port: 8080,
             web_port: 80,
             device_ip: "192.168.4.1".to_string(),
