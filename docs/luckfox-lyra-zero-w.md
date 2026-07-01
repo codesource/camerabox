@@ -113,6 +113,7 @@ sudo mkdir -p /mnt/lyra
 sudo mount /dev/sdX3 /mnt/lyra
 sudo cp /usr/bin/qemu-arm-static /mnt/lyra/usr/bin/
 sudo mount --bind /dev  /mnt/lyra/dev
+sudo mount -t devpts devpts /mnt/lyra/dev/pts
 sudo mount --bind /proc /mnt/lyra/proc
 sudo mount --bind /sys  /mnt/lyra/sys
 sudo cp /etc/resolv.conf /mnt/lyra/etc/resolv.conf
@@ -128,7 +129,7 @@ sudo chroot /mnt/lyra /bin/bash -e <<'EOF'
 export DEBIAN_FRONTEND=noninteractive
 # run apt as root — its unprivileged _apt sandbox user can't write /tmp under
 # an emulated chroot, which breaks apt-get update (and then packages 404)
-APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none"
+APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef"
 $APT update
 $APT install -y hostapd dnsmasq iw wpasupplicant isc-dhcp-client avahi-daemon rfkill
 $APT install -y ustreamer || echo "ustreamer not in apt — build it (see Troubleshooting)"

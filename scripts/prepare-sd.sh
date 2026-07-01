@@ -230,7 +230,9 @@ fi
 MNT="$(mktemp -d)"
 cleanup() {
     set +e
+    umount "$MNT/dev/pts" 2>/dev/null
     umount "$MNT/dev" "$MNT/proc" "$MNT/sys" 2>/dev/null
+    umount -R "$MNT/dev" 2>/dev/null
     umount "$MNT" 2>/dev/null
     rmdir "$MNT" 2>/dev/null
 }
@@ -357,20 +359,23 @@ info "installing dependencies in the ARM rootfs (emulated — slow)"
 cp /usr/bin/qemu-arm-static "$MNT/usr/bin/" 2>/dev/null || true
 mkdir -p "$MNT/tmp" && chmod 1777 "$MNT/tmp"
 mount --bind /dev "$MNT/dev"
+mkdir -p "$MNT/dev/pts"; mount -t devpts devpts "$MNT/dev/pts" 2>/dev/null || true
 mount --bind /proc "$MNT/proc"
 mount --bind /sys "$MNT/sys"
 cp /etc/resolv.conf "$MNT/etc/resolv.conf" 2>/dev/null || true
 deps_ok=1
 chroot "$MNT" /bin/bash -e <<'CHROOT' || deps_ok=0
 export DEBIAN_FRONTEND=noninteractive
-# Under an emulated chroot, apt's unprivileged _apt sandbox user can't write
-# /tmp — that breaks apt-key so 'update' can't refresh, and stale indexes then
-# 404. Run apt as root to avoid it.
-APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none"
+# In an emulated chroot: run apt as root (its _apt sandbox user can't write
+# /tmp, which breaks apt-key and then 404s on stale indexes); and keep our
+# pre-written config files without the interactive dpkg conffile prompt
+# (--force-conf* — there is no terminal to answer it).
+APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef"
 $APT update
 $APT install -y hostapd dnsmasq iw wpasupplicant isc-dhcp-client avahi-daemon rfkill
 $APT install -y ustreamer || echo ">> NOTE: 'ustreamer' not in apt — build it on the device (see docs)"
 CHROOT
+umount "$MNT/dev/pts" 2>/dev/null || true
 umount "$MNT/dev" "$MNT/proc" "$MNT/sys" 2>/dev/null || true
 rm -f "$MNT/usr/bin/qemu-arm-static"
 [[ "$deps_ok" == 1 ]] || warn "DEPENDENCY INSTALL FAILED — hostapd/dnsmasq/etc are NOT installed; the box won't host the hotspot until you fix apt (network?) and re-run this script."
