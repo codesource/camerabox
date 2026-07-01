@@ -172,21 +172,39 @@ done
 # is partition 1; the Luckfox Ubuntu image used partition 3), so probe each
 # ext*/btrfs/f2fs partition for a Linux root instead of assuming a number.
 find_rootfs() {
-    local p type tmp
+    local p type lbl tmp cand=()
+    # collect all Linux-filesystem partitions on the card
     for p in $(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{print $1}'); do
         type="$(blkid -o value -s TYPE "$p" 2>/dev/null || true)"
         [[ -n "$type" ]] || type="$(lsblk -no FSTYPE "$p" 2>/dev/null || true)"
-        case "$type" in ext2|ext3|ext4|btrfs|f2fs) ;; *) continue ;; esac
+        case "$type" in ext2|ext3|ext4|btrfs|f2fs) cand+=("$p") ;; esac
+    done
+    [[ ${#cand[@]} -gt 0 ]] || return 1
+    # exactly one -> that's the rootfs (no fragile probe-mount needed)
+    if [[ ${#cand[@]} -eq 1 ]]; then echo "${cand[0]}"; return 0; fi
+    # several -> prefer a root-labelled one
+    for p in "${cand[@]}"; do
+        lbl="$(blkid -o value -s LABEL "$p" 2>/dev/null || true)"
+        case "$lbl" in *[Rr]oot*) echo "$p"; return 0 ;; esac
+    done
+    # else probe for the one that actually contains /etc + /usr
+    for p in "${cand[@]}"; do
         tmp="$(mktemp -d)"
-        # a dirty ext journal blocks a plain ro mount; 'noload' skips replay
         if mount -o ro "$p" "$tmp" 2>/dev/null || mount -o ro,noload "$p" "$tmp" 2>/dev/null; then
-            if [[ -d "$tmp/etc" && -d "$tmp/usr" ]] && [[ -e "$tmp/etc/os-release" || -e "$tmp/sbin/init" ]]; then
+            if [[ -d "$tmp/etc" && -d "$tmp/usr" ]]; then
                 umount "$tmp" 2>/dev/null; rmdir "$tmp" 2>/dev/null; echo "$p"; return 0
             fi
             umount "$tmp" 2>/dev/null
         fi
         rmdir "$tmp" 2>/dev/null
     done
+    # last resort: the largest Linux-fs partition
+    local best="" bestsz=0 sz
+    for p in "${cand[@]}"; do
+        sz="$(lsblk -bno SIZE "$p" 2>/dev/null | head -1)"
+        [[ "${sz:-0}" -gt "$bestsz" ]] && { bestsz="$sz"; best="$p"; }
+    done
+    [[ -n "$best" ]] && { echo "$best"; return 0; }
     return 1
 }
 if ! ROOTP="$(find_rootfs)"; then
@@ -195,6 +213,7 @@ if ! ROOTP="$(find_rootfs)"; then
     die "couldn't find a Linux root filesystem on $DEV. If one of the partitions above is your rootfs, paste this output — its filesystem may be unrecognised or too dirty to probe."
 fi
 ROOTNUM="${ROOTP##*[!0-9]}"
+umount "$ROOTP" 2>/dev/null || true   # the desktop may have auto-mounted it
 info "root filesystem: $ROOTP"
 
 # --- grow the rootfs to fill the card (only if it's the last partition) ------
@@ -282,6 +301,7 @@ cleanup() {
     rmdir "$MNT" 2>/dev/null
 }
 trap cleanup EXIT
+umount "$ROOTP" 2>/dev/null || true   # in case the desktop re-auto-mounted it
 mount "$ROOTP" "$MNT"
 [[ -d "$MNT/etc" && -d "$MNT/usr" ]] || die "$ROOTP doesn't look like a Linux root filesystem"
 
