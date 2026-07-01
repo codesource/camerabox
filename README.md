@@ -111,8 +111,11 @@ provisioned before first boot.
 > Full walkthrough — flashing the Ubuntu image, the automated route, **and** the
 > equivalent manual steps — is in
 > [docs/luckfox-lyra-zero-w.md](docs/luckfox-lyra-zero-w.md). USB cameras need a
-> UVC-enabled kernel, which the stock image lacks — see
-> [docs/rk3506-ubuntu-uvc-image.md](docs/rk3506-ubuntu-uvc-image.md).
+> UVC-enabled kernel, which the stock image lacks. The **recommended** way to get
+> a ready-to-run image (UVC kernel + camera-box + hotspot baked in, boots as an
+> AP) is to build a custom **Armbian** image —
+> [docs/armbian-lyra-image.md](docs/armbian-lyra-image.md); the from-SDK Ubuntu
+> route is in [docs/rk3506-ubuntu-uvc-image.md](docs/rk3506-ubuntu-uvc-image.md).
 
 The installer downloads the right binary, installs the dependencies above, sets
 up and starts the `systemd` service, and writes a default config (it never
