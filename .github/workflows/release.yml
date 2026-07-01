@@ -39,6 +39,10 @@ jobs:
           build arm-unknown-linux-musleabihf   pi-zero-w-armv6
           build armv7-unknown-linux-musleabihf pi-zero-2w-armv7
           build aarch64-unknown-linux-musl     pi-zero-2w-arm64
+          # Luckfox Lyra Zero W (Rockchip RK3506B, triple Cortex-A7) is ARMv7
+          # hard-float — the same ISA as the 32-bit Pi Zero 2 W. Publish a
+          # board-named copy of that static binary (no extra build needed).
+          cp dist/camera-box-pi-zero-2w-armv7 dist/camera-box-luckfox-lyra-zero-w
 
       - name: Generate checksums
         run: cd dist && sha256sum camera-box-* > SHA256SUMS
@@ -55,6 +59,10 @@ jobs:
           | Pi Zero W v1.1 (ARMv6) | `camera-box-pi-zero-w-armv6` |
           | Pi Zero 2 W (32-bit OS) | `camera-box-pi-zero-2w-armv7` |
           | Pi Zero 2 W (64-bit OS) | `camera-box-pi-zero-2w-arm64` |
+          | Luckfox Lyra Zero W (RK3506B) | `camera-box-luckfox-lyra-zero-w` |
+
+          The Luckfox Lyra Zero W needs a systemd image (the Ubuntu image, not
+          Buildroot/BusyBox). Its binary is identical to the Pi Zero 2 W 32-bit one.
 
           ## Install (Pi Zero W v1.1)
 

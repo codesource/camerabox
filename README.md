@@ -29,6 +29,8 @@ processes, networking, and the UI/API.
 ## Target platform
 
 - Raspberry Pi Zero W v1.1 (armv6) or Pi Zero 2 W (armv7/aarch64)
+- Also runs on the Luckfox Lyra Zero W (Rockchip RK3506B, ARMv7) on its
+  **Ubuntu image** — see the install table below
 - Raspberry Pi OS Lite / Raspbian (tested on trixie), **Linux only**
 - Runs as a `systemd` service, as root
 - Wi-Fi AP via `hostapd` + `dnsmasq`; default AP IP `192.168.4.1`
@@ -67,6 +69,13 @@ curl -fsSL https://raw.githubusercontent.com/codesource/camerabox/main/scripts/i
 | Pi Zero W v1.1 (ARMv6) | `pi-zero-w-armv6` |
 | Pi Zero 2 W (32-bit OS) | `pi-zero-2w-armv7` |
 | Pi Zero 2 W (64-bit OS) | `pi-zero-2w-arm64` |
+| Luckfox Lyra Zero W (RK3506B) | `luckfox-lyra-zero-w` |
+
+> **Luckfox Lyra Zero W** (Rockchip RK3506B, triple Cortex-A7) is 32-bit ARMv7,
+> so it runs the same static binary as the Pi Zero 2 W (32-bit). Use the
+> **Ubuntu image** (it has `systemd`; the Buildroot/BusyBox image does not, which
+> camera-box requires). On first run, confirm `ustreamer` installed, a USB
+> camera shows up as `/dev/video0`, and the AIC8800 Wi-Fi starts the hotspot.
 
 The installer downloads the right binary, installs the dependencies above, sets
 up and starts the `systemd` service, and writes a default config (it never

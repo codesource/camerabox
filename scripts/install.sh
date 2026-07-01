@@ -30,12 +30,13 @@ fi
 usage() {
     echo "usage: install.sh <board|binary-path>" >&2
     echo "  board: pi-zero-w-armv6 | pi-zero-2w-armv7 | pi-zero-2w-arm64" >&2
+    echo "         luckfox-lyra-zero-w (needs the Ubuntu/systemd image)" >&2
     exit 1
 }
 
 ARG="${1:-}"
 case "$ARG" in
-    pi-zero-w-armv6 | pi-zero-2w-armv7 | pi-zero-2w-arm64)
+    pi-zero-w-armv6 | pi-zero-2w-armv7 | pi-zero-2w-arm64 | luckfox-lyra-zero-w)
         asset="camera-box-$ARG"
         BIN=/tmp/camera-box.download
         echo ">> downloading $asset from the latest release..."
