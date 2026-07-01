@@ -172,12 +172,14 @@ done
 # is partition 1; the Luckfox Ubuntu image used partition 3), so probe each
 # ext*/btrfs/f2fs partition for a Linux root instead of assuming a number.
 find_rootfs() {
-    local p fstype tmp
+    local p type tmp
     for p in $(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{print $1}'); do
-        fstype="$(lsblk -no FSTYPE "$p" 2>/dev/null)"
-        case "$fstype" in ext2|ext3|ext4|btrfs|f2fs) ;; *) continue ;; esac
+        type="$(blkid -o value -s TYPE "$p" 2>/dev/null || true)"
+        [[ -n "$type" ]] || type="$(lsblk -no FSTYPE "$p" 2>/dev/null || true)"
+        case "$type" in ext2|ext3|ext4|btrfs|f2fs) ;; *) continue ;; esac
         tmp="$(mktemp -d)"
-        if mount -o ro "$p" "$tmp" 2>/dev/null; then
+        # a dirty ext journal blocks a plain ro mount; 'noload' skips replay
+        if mount -o ro "$p" "$tmp" 2>/dev/null || mount -o ro,noload "$p" "$tmp" 2>/dev/null; then
             if [[ -d "$tmp/etc" && -d "$tmp/usr" ]] && [[ -e "$tmp/etc/os-release" || -e "$tmp/sbin/init" ]]; then
                 umount "$tmp" 2>/dev/null; rmdir "$tmp" 2>/dev/null; echo "$p"; return 0
             fi
@@ -187,7 +189,11 @@ find_rootfs() {
     done
     return 1
 }
-ROOTP="$(find_rootfs)" || die "couldn't find a Linux root filesystem on $DEV — is it flashed with a systemd Linux image?"
+if ! ROOTP="$(find_rootfs)"; then
+    echo "Partitions on $DEV:" >&2
+    lsblk -po NAME,SIZE,FSTYPE,LABEL "$DEV" >&2 || true
+    die "couldn't find a Linux root filesystem on $DEV. If one of the partitions above is your rootfs, paste this output — its filesystem may be unrecognised or too dirty to probe."
+fi
 ROOTNUM="${ROOTP##*[!0-9]}"
 info "root filesystem: $ROOTP"
 
