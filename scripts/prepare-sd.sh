@@ -161,32 +161,60 @@ fi
 partprobe "$DEV" 2>/dev/null || true
 command -v udevadm >/dev/null && udevadm settle 2>/dev/null || true
 sleep 1
-ROOTP="$(partof "$DEV" 3)"
-[[ -b "$ROOTP" ]] || die "no partition 3 on $DEV — is it flashed with the Ubuntu image?"
 
-# --- grow the rootfs to fill the card (image ships nearly full) --------------
-if lsblk -lno NAME "$DEV" | tail -1 | grep -q "$(basename "$ROOTP")"; then
+# The desktop may have auto-mounted partitions of the card; unmount them, or
+# e2fsck/resize2fs refuse to touch a mounted filesystem.
+for p in $(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{print $1}'); do
+    umount "$p" 2>/dev/null || true
+done
+
+# Find the root filesystem partition. Layouts differ per image (Armbian's rootfs
+# is partition 1; the Luckfox Ubuntu image used partition 3), so probe each
+# ext*/btrfs/f2fs partition for a Linux root instead of assuming a number.
+find_rootfs() {
+    local p fstype tmp
+    for p in $(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{print $1}'); do
+        fstype="$(lsblk -no FSTYPE "$p" 2>/dev/null)"
+        case "$fstype" in ext2|ext3|ext4|btrfs|f2fs) ;; *) continue ;; esac
+        tmp="$(mktemp -d)"
+        if mount -o ro "$p" "$tmp" 2>/dev/null; then
+            if [[ -d "$tmp/etc" && -d "$tmp/usr" ]] && [[ -e "$tmp/etc/os-release" || -e "$tmp/sbin/init" ]]; then
+                umount "$tmp" 2>/dev/null; rmdir "$tmp" 2>/dev/null; echo "$p"; return 0
+            fi
+            umount "$tmp" 2>/dev/null
+        fi
+        rmdir "$tmp" 2>/dev/null
+    done
+    return 1
+}
+ROOTP="$(find_rootfs)" || die "couldn't find a Linux root filesystem on $DEV — is it flashed with a systemd Linux image?"
+ROOTNUM="${ROOTP##*[!0-9]}"
+info "root filesystem: $ROOTP"
+
+# --- grow the rootfs to fill the card (only if it's the last partition) ------
+lastpart="$(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{n=$1} END{print n}')"
+if [[ "$ROOTP" == "$lastpart" ]]; then
     info "growing rootfs $ROOTP to fill the card"
     # A small image dd'd onto a big card leaves GPT's backup header stranded
-    # mid-disk, so parted can't grow the partition. Move it to the end first.
+    # mid-disk; move it to the end first so the partition can be grown.
     if command -v sgdisk >/dev/null 2>&1; then
         sgdisk -e "$DEV" >/dev/null 2>&1 || true
         partprobe "$DEV" 2>/dev/null || true; sleep 1
     fi
     if command -v growpart >/dev/null 2>&1; then
-        growpart "$DEV" 3 || warn "growpart failed (continuing)"
-    elif parted -s "$DEV" resizepart 3 100%; then
+        growpart "$DEV" "$ROOTNUM" || warn "growpart failed (continuing)"
+    elif parted -s "$DEV" resizepart "$ROOTNUM" 100%; then
         :
     else
-        warn "could not grow partition 3 — install 'cloud-guest-utils' (growpart) or"
-        warn "'gdisk' (sgdisk) and re-run, otherwise the rootfs stays small and apt"
-        warn "may run out of space."
+        warn "could not grow $ROOTP — install 'cloud-guest-utils' (growpart) or 'gdisk'"
+        warn "(sgdisk); otherwise the rootfs stays small and apt may run out of space."
     fi
     partprobe "$DEV" 2>/dev/null || true; sleep 1
     e2fsck -fy "$ROOTP" || true
     resize2fs "$ROOTP" || warn "resize2fs failed (apt may run out of space)"
 else
-    warn "partition 3 is not the last partition — skipping auto-grow"
+    warn "rootfs $ROOTP is not the last partition — skipping auto-grow (Armbian and"
+    warn "many images auto-expand the rootfs on first boot anyway)."
 fi
 
 # --- get the camera-box binary ----------------------------------------------
@@ -249,7 +277,7 @@ cleanup() {
 }
 trap cleanup EXIT
 mount "$ROOTP" "$MNT"
-[[ -d "$MNT/etc" && -d "$MNT/usr" ]] || die "partition 3 doesn't look like a Linux root filesystem"
+[[ -d "$MNT/etc" && -d "$MNT/usr" ]] || die "$ROOTP doesn't look like a Linux root filesystem"
 
 # --- install the binary -----------------------------------------------------
 if [[ -n "$NOBIN" ]]; then
