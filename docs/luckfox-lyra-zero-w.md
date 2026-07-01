@@ -56,8 +56,9 @@ sudo bash prepare-sd.sh \
   --image https://github.com/platima/SBC-Images/raw/main/Luckfox/Lyra/Lyra%20Zero%20W/<image>.img.bz2
 ```
 
-The camera-box binary is **downloaded automatically** from the latest release; no
-`--binary` needed unless you built it yourself. `--image` also takes a **local
+With no `--binary`, the script **lists the binaries in the latest release and
+lets you pick one** (defaulting to the ARMv7 build the Lyra needs) — or pass your
+own local build with `--binary ./camera-box`. `--image` also takes a **local
 file** (`--image ./Luckfox_…_Ubuntu.img.bz2`) if you already downloaded it; skip
 `--image` entirely to provision a card you flashed separately. Customise the
 hotspot with `--ssid`, `--pass`, `--ip` (e.g. `--ip 192.168.5.1/24` for a second

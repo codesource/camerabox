@@ -185,16 +185,46 @@ else
 fi
 
 # --- get the camera-box binary ----------------------------------------------
-if [[ -z "$BINARY" ]]; then
-    BINARY="$(mktemp)"
-    info "downloading camera-box (armv7) from the latest release"
-    ok=""
-    for a in camera-box-luckfox-lyra-zero-w camera-box-pi-zero-2w-armv7; do
-        if curl -fL "https://github.com/$REPO/releases/latest/download/$a" -o "$BINARY" 2>/dev/null; then ok=1; break; fi
+# No --binary given: offer the binaries from the latest release and let the user
+# pick one (defaulting to the ARMv7 build the Lyra needs).
+pick_binary() {
+    local names=() json
+    if json="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null)"; then
+        mapfile -t names < <(printf '%s\n' "$json" \
+            | grep -oE '"name":[[:space:]]*"camera-box-[^"]*"' \
+            | sed -E 's/.*"(camera-box-[^"]*)".*/\1/' \
+            | grep -v 'SHA256')
+    fi
+    if [[ ${#names[@]} -eq 0 ]]; then
+        warn "couldn't read the release assets — showing the standard list"
+        names=(camera-box-luckfox-lyra-zero-w camera-box-pi-zero-2w-armv7 \
+               camera-box-pi-zero-w-armv6 camera-box-pi-zero-2w-arm64)
+    fi
+    # default to the Lyra-appropriate build (luckfox / armv7)
+    local def=0 i
+    for i in "${!names[@]}"; do
+        case "${names[$i]}" in *luckfox*|*armv7*) def=$i; break;; esac
     done
-    [[ -n "$ok" ]] || die "could not download a binary — pass one with --binary"
+    echo "Which camera-box binary to install? (the Lyra Zero W needs armv7 / luckfox)"
+    for i in "${!names[@]}"; do
+        local tag=""; case "${names[$i]}" in *luckfox*|*armv7*) tag="  (recommended for the Lyra)";; esac
+        printf "  [%d] %s%s\n" "$i" "${names[$i]}" "$tag"
+    done
+    local sel
+    read -rp "Select a binary number [default $def]: " sel
+    sel="${sel:-$def}"
+    [[ "$sel" =~ ^[0-9]+$ && -n "${names[$sel]:-}" ]] || die "invalid selection"
+    local asset="${names[$sel]}"
+    BINARY="$(mktemp)"
+    info "downloading $asset from the latest release"
+    curl -fL "https://github.com/$REPO/releases/latest/download/$asset" -o "$BINARY" \
+        || die "download failed for $asset — pass a local build with --binary"
+}
+
+if [[ -z "$BINARY" ]]; then
+    pick_binary
 fi
-[[ -s "$BINARY" ]] || die "binary '$BINARY' is missing or empty — omit --binary to auto-download it from the latest release, or point --binary at a real camera-box build."
+[[ -s "$BINARY" ]] || die "binary '$BINARY' is missing or empty — pass a real camera-box build with --binary."
 
 # --- mount the rootfs (with cleanup on exit) --------------------------------
 MNT="$(mktemp -d)"

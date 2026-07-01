@@ -86,8 +86,9 @@ the Ubuntu image, grows the root filesystem, installs the dependencies into the
 ARM rootfs (via a `qemu-user-static` chroot), installs camera-box, pre-writes the
 hotspot config, and enables the services:
 
-No repo clone needed — grab just the one script (it downloads the camera-box
-binary from the latest release itself):
+No repo clone needed — grab just the one script (with no `--binary` it lists the
+binaries in the latest release and lets you pick one, defaulting to the ARMv7
+build the Lyra needs):
 
 ```sh
 sudo apt install qemu-user-static binfmt-support parted e2fsprogs \
