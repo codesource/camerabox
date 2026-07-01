@@ -38,23 +38,29 @@ the file — you'll pass it to the tools below.
 
 ## Option A — automated (recommended)
 
-One command flashes the image, then installs and configures everything. On your
-Linux PC:
+One command flashes the image, then installs and configures everything. It runs
+on your **Linux PC** (not on the Lyra), and it's interactive — so **download the
+one script** and run it (no repo clone, and don't `curl | bash` it, or the SD
+picker prompt has nowhere to read from):
 
 ```sh
 # one-time: tools for the ARM chroot + partitioning
 sudo apt install qemu-user-static binfmt-support parted e2fsprogs curl
 
+# grab just the script:
+curl -fsSL https://raw.githubusercontent.com/codesource/camerabox/main/scripts/prepare-sd.sh -o prepare-sd.sh
+
 # flash + provision in one go (it will let you PICK the SD card):
-sudo bash scripts/prepare-sd.sh \
-  --image  https://github.com/platima/SBC-Images/raw/main/Luckfox/Lyra/Lyra%20Zero%20W/<image>.img.bz2 \
-  --binary ./camera-box-luckfox-lyra-zero-w
+sudo bash prepare-sd.sh \
+  --image https://github.com/platima/SBC-Images/raw/main/Luckfox/Lyra/Lyra%20Zero%20W/<image>.img.bz2
 ```
 
-`--image` also takes a **local file** (`--image ./Luckfox_…_Ubuntu.img.bz2`) if
-you already downloaded it. Skip `--image` entirely to provision a card you flashed
-separately. Customise the hotspot with `--ssid`, `--pass`, `--ip` (e.g.
-`--ip 192.168.5.1/24` for a second box).
+The camera-box binary is **downloaded automatically** from the latest release; no
+`--binary` needed unless you built it yourself. `--image` also takes a **local
+file** (`--image ./Luckfox_…_Ubuntu.img.bz2`) if you already downloaded it; skip
+`--image` entirely to provision a card you flashed separately. Customise the
+hotspot with `--ssid`, `--pass`, `--ip` (e.g. `--ip 192.168.5.1/24` for a second
+box).
 
 The script: lets you pick the SD card (and refuses your PC's system disk) →
 flashes (if `--image`) → grows the rootfs → installs the dependencies into the
@@ -246,7 +252,7 @@ sync
 Insert the card, power on, and after ~30 s the board should broadcast the
 **CameraBox** Wi-Fi. Connect to it and open:
 
-```
+```text
 http://192.168.4.1/        # login: admin / password
 ```
 
@@ -269,10 +275,12 @@ iw dev                                         # wlan0 present, type AP
   is loaded (`iw dev`, `dmesg | grep -i aic`) and that the Luckfox image includes
   AP-mode support for it.
 - **`ustreamer` not in apt.** Build it (small, V4L2-only):
+
   ```sh
   sudo apt install -y build-essential libjpeg-dev libevent-dev libbsd-dev
   git clone --depth=1 https://github.com/pikvm/ustreamer && cd ustreamer && make && sudo make install
   ```
+
   Set `ustreamer_path` in `/etc/camera-box/config.toml` if it lands somewhere
   other than `/usr/bin/ustreamer`.
 - **Camera not detected.** Confirm `v4l2-ctl --list-devices` shows a `usb-…`

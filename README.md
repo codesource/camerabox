@@ -86,15 +86,19 @@ the Ubuntu image, grows the root filesystem, installs the dependencies into the
 ARM rootfs (via a `qemu-user-static` chroot), installs camera-box, pre-writes the
 hotspot config, and enables the services:
 
+No repo clone needed — grab just the one script (it downloads the camera-box
+binary from the latest release itself):
+
 ```sh
 sudo apt install qemu-user-static binfmt-support parted e2fsprogs curl   # one-time
+curl -fsSL https://raw.githubusercontent.com/codesource/camerabox/main/scripts/prepare-sd.sh -o prepare-sd.sh
 
 # flash the Ubuntu image AND provision, in one command (--image takes a URL or file):
-sudo bash scripts/prepare-sd.sh \
-  --image  https://github.com/platima/SBC-Images/raw/main/Luckfox/Lyra/Lyra%20Zero%20W/<image>.img.bz2 \
-  --binary ./camera-box-luckfox-lyra-zero-w
+sudo bash prepare-sd.sh \
+  --image https://github.com/platima/SBC-Images/raw/main/Luckfox/Lyra/Lyra%20Zero%20W/<image>.img.bz2
 # customise the hotspot: --ssid MyBox --pass MySecret123 --ip 192.168.5.1/24
 # already flashed the card? drop --image and it just provisions.
+# built the binary yourself? point at it with --binary ./camera-box
 ```
 
 On boot the board hosts the hotspot; browse `http://192.168.4.1/` (admin /
