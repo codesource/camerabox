@@ -285,6 +285,14 @@ iw dev                                         # wlan0 present, type AP
 
 ## Troubleshooting
 
+- **The board won't boot from the SD card.** The RK3506 boots from its onboard
+  **SPI flash first** and ignores the SD if the SPI holds a bootloader. Erase it
+  once with Rockchip's `rkdeveloptool`: enter MASKROM mode (hold the BOOT button
+  while connecting the USB-C data port), then `rkdeveloptool db MiniLoaderAll.bin`
+  (loader from the Luckfox SDK) and `rkdeveloptool ef` (erase flash), or use
+  RKDevTool → *Advanced → Erase All* on Windows. After erasing, the board boots
+  from the SD card (and USB host works). See the Armbian forum thread for the
+  Lyra Zero W and the Luckfox image-flashing wiki.
 - **No hotspot appears.** Check `journalctl -u hostapd -b`. The AIC8800 Wi-Fi
   driver is out-of-tree; if hostapd won't start in AP mode, confirm the driver
   is loaded (`iw dev`, `dmesg | grep -i aic`) and that the Luckfox image includes
