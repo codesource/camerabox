@@ -77,6 +77,27 @@ curl -fsSL https://raw.githubusercontent.com/codesource/camerabox/main/scripts/i
 > camera-box requires). On first run, confirm `ustreamer` installed, a USB
 > camera shows up as `/dev/video0`, and the AIC8800 Wi-Fi starts the hotspot.
 
+### Prepare an SD card from your PC (offline first boot)
+
+To bake everything onto the card so the board boots ready as a hotspot — no
+setup on the device — flash the board's **Ubuntu (systemd)** image to the card,
+then run [`scripts/prepare-sd.sh`](scripts/prepare-sd.sh) on your Linux PC. It
+lets you **pick the SD card** interactively, grows the root filesystem, installs
+the dependencies into the ARM rootfs (via a `qemu-user-static` chroot), installs
+camera-box, pre-writes the hotspot config, and enables the services:
+
+```sh
+sudo apt install qemu-user-static binfmt-support parted e2fsprogs   # one-time
+sudo bash scripts/prepare-sd.sh --binary ./camera-box-luckfox-lyra-zero-w
+# optionally: --ssid MyBox --pass MySecret123 --ip 192.168.5.1/24
+# or let it flash the image too: --image Luckfox_Lyra_Zero_W_Ubuntu.img.bz2
+```
+
+On boot the board hosts the hotspot; browse `http://192.168.4.1/` (admin /
+password). For a Raspberry Pi the plain [Install](#install-recommended) one-liner
+is simpler — this offline route is for boards (like the Lyra) you want fully
+provisioned before first boot.
+
 The installer downloads the right binary, installs the dependencies above, sets
 up and starts the `systemd` service, and writes a default config (it never
 overwrites an existing one). When it finishes, open the dashboard (see
