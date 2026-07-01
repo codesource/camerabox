@@ -80,17 +80,21 @@ curl -fsSL https://raw.githubusercontent.com/codesource/camerabox/main/scripts/i
 ### Prepare an SD card from your PC (offline first boot)
 
 To bake everything onto the card so the board boots ready as a hotspot — no
-setup on the device — flash the board's **Ubuntu (systemd)** image to the card,
-then run [`scripts/prepare-sd.sh`](scripts/prepare-sd.sh) on your Linux PC. It
-lets you **pick the SD card** interactively, grows the root filesystem, installs
-the dependencies into the ARM rootfs (via a `qemu-user-static` chroot), installs
-camera-box, pre-writes the hotspot config, and enables the services:
+setup on the device — run [`scripts/prepare-sd.sh`](scripts/prepare-sd.sh) on
+your Linux PC. It lets you **pick the SD card** interactively, optionally flashes
+the Ubuntu image, grows the root filesystem, installs the dependencies into the
+ARM rootfs (via a `qemu-user-static` chroot), installs camera-box, pre-writes the
+hotspot config, and enables the services:
 
 ```sh
-sudo apt install qemu-user-static binfmt-support parted e2fsprogs   # one-time
-sudo bash scripts/prepare-sd.sh --binary ./camera-box-luckfox-lyra-zero-w
-# optionally: --ssid MyBox --pass MySecret123 --ip 192.168.5.1/24
-# or let it flash the image too: --image Luckfox_Lyra_Zero_W_Ubuntu.img.bz2
+sudo apt install qemu-user-static binfmt-support parted e2fsprogs curl   # one-time
+
+# flash the Ubuntu image AND provision, in one command (--image takes a URL or file):
+sudo bash scripts/prepare-sd.sh \
+  --image  https://github.com/platima/SBC-Images/raw/main/Luckfox/Lyra/Lyra%20Zero%20W/<image>.img.bz2 \
+  --binary ./camera-box-luckfox-lyra-zero-w
+# customise the hotspot: --ssid MyBox --pass MySecret123 --ip 192.168.5.1/24
+# already flashed the card? drop --image and it just provisions.
 ```
 
 On boot the board hosts the hotspot; browse `http://192.168.4.1/` (admin /
