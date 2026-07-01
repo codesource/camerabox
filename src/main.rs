@@ -62,17 +62,14 @@ async fn main() -> anyhow::Result<()> {
     let auth = auth::Auth::load(std::path::PathBuf::from(AUTH_PATH));
     let ap = ApConfig::load(Path::new(AP_PATH));
 
-    // Keep the on-disk AP config files in sync with the saved settings so a
-    // reboot brings the hotspot up with the configured SSID/password/IP. This
-    // does not restart anything, so it never disturbs the current network mode.
+    // Keep the on-disk AP config files (hostapd, dnsmasq, boot-time IP unit,
+    // hostname mapping) in sync with the saved settings so a reboot brings the
+    // hotspot up with the configured SSID/password/IP. This does not restart
+    // anything, so it never disturbs the current network mode.
     if let Some(iface) = net::primary_wifi() {
-        if let Err(e) = net::sync_ap_config(&iface, &ap) {
+        if let Err(e) = net::sync_ap_config(&iface, &ap).await {
             tracing::warn!(error = %e, "could not sync AP config files");
         }
-    }
-    // Ensure AP (dnsmasq) clients can resolve <hostname>.local in hotspot mode.
-    if let Err(e) = net::write_ap_hostname_mapping(&net::current_hostname()) {
-        tracing::warn!(error = %e, "could not write AP hostname mapping");
     }
 
     let state = Arc::new(AppState::new(

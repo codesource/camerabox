@@ -101,6 +101,9 @@ pub struct PersistState {
 pub struct ApConfig {
     pub ssid: String,
     pub password: String,
+    /// AP gateway address with prefix, e.g. `192.168.4.1/24`. The DHCP range is
+    /// derived from it, so multiple boxes can use distinct subnets.
+    pub ip_cidr: String,
 }
 
 impl Default for ApConfig {
@@ -108,6 +111,7 @@ impl Default for ApConfig {
         Self {
             ssid: "CameraBox".to_string(),
             password: "CameraBox123".to_string(),
+            ip_cidr: "192.168.4.1/24".to_string(),
         }
     }
 }

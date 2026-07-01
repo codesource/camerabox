@@ -25,8 +25,9 @@ use tracing::{info, warn};
 use crate::config::ApConfig;
 
 const PROFILE_DIR: &str = "/etc/camera-box/wifi";
-const AP_IP_CIDR: &str = "192.168.4.1/24";
 const HOSTAPD_CONF: &str = "/etc/hostapd/hostapd.conf";
+const DNSMASQ_CONF: &str = "/etc/dnsmasq.conf";
+const CAMERA_BOX_IP_UNIT: &str = "/etc/systemd/system/camera-box-ip.service";
 
 pub type NetResult<T> = Result<T, String>;
 
@@ -291,10 +292,10 @@ pub async fn scan(iface: &str) -> NetResult<Vec<ScanResult>> {
 pub async fn start_hotspot(iface: &str, ap: &ApConfig) -> NetResult<()> {
     validate_iface(iface)?;
     validate_ap(ap)?;
-    info!(iface, ssid = %ap.ssid, "switching to hotspot (AP) mode");
+    info!(iface, ssid = %ap.ssid, ip = %ap.ip_cidr, "switching to hotspot (AP) mode");
 
-    // Regenerate hostapd's config from the saved SSID/password before (re)start.
-    write_hostapd_conf(iface, ap)?;
+    // Regenerate hostapd/dnsmasq/boot-IP config from the saved settings first.
+    write_ap_files(iface, ap).await?;
 
     stop_client(iface).await;
     // Wi-Fi can be rfkill soft-blocked (especially after a reboot); unblock it
@@ -307,7 +308,7 @@ pub async fn start_hotspot(iface: &str, ap: &ApConfig) -> NetResult<()> {
 
     // Assign the AP IP directly — don't depend on the external camera-box-ip
     // unit, which fails if the link was rfkill-blocked at boot.
-    sh_ok("ip", &["addr", "add", AP_IP_CIDR, "dev", iface]).await;
+    sh_ok("ip", &["addr", "add", &ap.ip_cidr, "dev", iface]).await;
 
     // hostapd ships masked on Raspberry Pi OS; make sure both can start.
     sh_ok("systemctl", &["unmask", "hostapd", "dnsmasq"]).await;
@@ -319,28 +320,43 @@ pub async fn start_hotspot(iface: &str, ap: &ApConfig) -> NetResult<()> {
     Ok(())
 }
 
-/// Save/apply new AP settings without necessarily switching mode: rewrite
-/// `hostapd.conf`, and if this interface is currently serving the AP, restart
-/// `hostapd` so the change (e.g. a new SSID) takes effect immediately.
+/// Save/apply new AP settings without switching mode: regenerate the config
+/// files, and if this interface is currently serving the AP, re-assign the IP
+/// and restart dnsmasq/hostapd so a changed SSID/password/IP takes effect now.
 pub async fn apply_ap(iface: &str, ap: &ApConfig) -> NetResult<()> {
     validate_iface(iface)?;
     validate_ap(ap)?;
-    write_hostapd_conf(iface, ap)?;
+    write_ap_files(iface, ap).await?;
     if interface_status(iface).await.mode == "ap" {
+        sh_ok("ip", &["addr", "flush", "dev", iface]).await;
+        sh_ok("ip", &["addr", "add", &ap.ip_cidr, "dev", iface]).await;
+        sh("systemctl", &["restart", "dnsmasq"]).await?;
         sh("systemctl", &["restart", "hostapd"]).await?;
-        info!(iface, ssid = %ap.ssid, "applied new hotspot settings");
+        info!(iface, ssid = %ap.ssid, ip = %ap.ip_cidr, "applied new hotspot settings");
     }
     Ok(())
 }
 
 /// Regenerate the on-disk AP config files from the saved settings so a reboot
-/// brings the hotspot up with the configured SSID/password. Does **not** restart
-/// any service — safe to call at daemon startup without changing the live mode.
-pub fn sync_ap_config(iface: &str, ap: &ApConfig) -> NetResult<()> {
-    write_hostapd_conf(iface, ap)
+/// brings the hotspot up with the configured SSID/password/IP. Does **not**
+/// restart any service — safe to call at startup without changing the live mode.
+pub async fn sync_ap_config(iface: &str, ap: &ApConfig) -> NetResult<()> {
+    write_ap_files(iface, ap).await
 }
 
-/// Validate SSID/passphrase against the WPA2-PSK limits.
+/// Write every file that defines the AP (hostapd, dnsmasq, boot-time IP unit,
+/// and the hostname → AP-IP mapping) and reload systemd so the regenerated
+/// `camera-box-ip.service` is picked up. Does not (re)start network services.
+async fn write_ap_files(iface: &str, ap: &ApConfig) -> NetResult<()> {
+    write_hostapd_conf(iface, ap)?;
+    write_dnsmasq_conf(iface, ap)?;
+    write_ap_hostname_mapping(&current_hostname(), ap_ip_of(&ap.ip_cidr))?;
+    write_camera_box_ip_unit(iface, ap)?;
+    sh_ok("systemctl", &["daemon-reload"]).await;
+    Ok(())
+}
+
+/// Validate the SSID/passphrase (WPA2-PSK limits) and the AP IP/subnet.
 pub fn validate_ap(ap: &ApConfig) -> NetResult<()> {
     let ssid_len = ap.ssid.len();
     if ssid_len == 0 || ssid_len > 32 {
@@ -353,7 +369,54 @@ pub fn validate_ap(ap: &ApConfig) -> NetResult<()> {
     if !(8..=63).contains(&pw_len) {
         return Err("hotspot password must be 8–63 characters".into());
     }
+    validate_ap_ip(&ap.ip_cidr)
+}
+
+/// The AP gateway address must be `a.b.c.d/24` with the host part in 1–254 and
+/// outside the DHCP range (.100–.200), so the gateway can't collide with a lease.
+fn validate_ap_ip(ip_cidr: &str) -> NetResult<()> {
+    let (ip, prefix) = ip_cidr
+        .split_once('/')
+        .ok_or("hotspot IP must look like 192.168.4.1/24")?;
+    if prefix != "24" {
+        return Err("hotspot IP prefix must be /24".into());
+    }
+    let octets: Vec<&str> = ip.split('.').collect();
+    if octets.len() != 4 {
+        return Err("invalid hotspot IP".into());
+    }
+    let mut host = 0u16;
+    for (i, o) in octets.iter().enumerate() {
+        let n: u16 = o.parse().map_err(|_| "invalid hotspot IP")?;
+        if n > 255 {
+            return Err("invalid hotspot IP".into());
+        }
+        if i == 3 {
+            host = n;
+        }
+    }
+    if host == 0 || host >= 255 {
+        return Err("hotspot IP host part must be 1–254".into());
+    }
+    if (100..=200).contains(&host) {
+        return Err("hotspot IP must be outside .100–.200 (the DHCP range)".into());
+    }
     Ok(())
+}
+
+/// The gateway address (the part before `/`).
+fn ap_ip_of(ip_cidr: &str) -> &str {
+    ip_cidr.split('/').next().unwrap_or("192.168.4.1")
+}
+
+/// dnsmasq `dhcp-range` for the AP subnet: `<net>.100,<net>.200,255.255.255.0,24h`.
+fn dhcp_range_of(ip_cidr: &str) -> String {
+    let ip = ap_ip_of(ip_cidr);
+    let net3 = match ip.rsplit_once('.') {
+        Some((net, _host)) => net,
+        None => "192.168.4",
+    };
+    format!("{net3}.100,{net3}.200,255.255.255.0,24h")
 }
 
 /// Write `/etc/hostapd/hostapd.conf` from the saved AP settings. Fixed radio
@@ -383,6 +446,54 @@ fn write_hostapd_conf(iface: &str, ap: &ApConfig) -> NetResult<()> {
         pass = ap.password,
     );
     write_secure(Path::new(HOSTAPD_CONF), &body)
+}
+
+/// Write `/etc/dnsmasq.conf` — camera-box owns it (dnsmasq exists only for the
+/// AP here). The DHCP range and gateway/DNS options follow the configured AP IP,
+/// and `conf-dir` keeps the `/etc/dnsmasq.d/` hostname mapping loading.
+fn write_dnsmasq_conf(iface: &str, ap: &ApConfig) -> NetResult<()> {
+    let ip = ap_ip_of(&ap.ip_cidr);
+    let body = format!(
+        "# Managed by camera-box — do not edit.\n\
+         interface={iface}\n\
+         bind-dynamic\n\
+         dhcp-range={range}\n\
+         dhcp-option=option:router,{ip}\n\
+         dhcp-option=option:dns-server,{ip}\n\
+         domain-needed\n\
+         bogus-priv\n\
+         conf-dir=/etc/dnsmasq.d/,*.conf\n",
+        iface = iface,
+        range = dhcp_range_of(&ap.ip_cidr),
+        ip = ip,
+    );
+    std::fs::write(DNSMASQ_CONF, body).map_err(|e| e.to_string())
+}
+
+/// Rewrite the boot-time `camera-box-ip.service` so a reboot brings the primary
+/// interface up on the configured AP IP (before dnsmasq/hostapd start).
+fn write_camera_box_ip_unit(iface: &str, ap: &ApConfig) -> NetResult<()> {
+    let body = format!(
+        "[Unit]\n\
+         Description=Set static IP for the camera-box AP\n\
+         Before=dnsmasq.service hostapd.service\n\
+         After=sys-subsystem-net-devices-{iface}.device\n\
+         Wants=sys-subsystem-net-devices-{iface}.device\n\
+         \n\
+         [Service]\n\
+         Type=oneshot\n\
+         ExecStartPre=-/usr/sbin/rfkill unblock wifi\n\
+         ExecStart=/sbin/ip addr flush dev {iface}\n\
+         ExecStart=/sbin/ip addr add {cidr} dev {iface}\n\
+         ExecStart=/sbin/ip link set {iface} up\n\
+         RemainAfterExit=yes\n\
+         \n\
+         [Install]\n\
+         WantedBy=multi-user.target\n",
+        iface = iface,
+        cidr = ap.ip_cidr,
+    );
+    std::fs::write(CAMERA_BOX_IP_UNIT, body).map_err(|e| e.to_string())
 }
 
 async fn stop_hotspot() {
@@ -604,11 +715,12 @@ pub fn current_hostname() -> String {
 }
 
 /// Change the system hostname and refresh mDNS (avahi) + AP DNS (dnsmasq).
-pub async fn set_hostname(name: &str) -> NetResult<()> {
+/// `ap_ip` is the current hotspot gateway the name should resolve to.
+pub async fn set_hostname(name: &str, ap_ip: &str) -> NetResult<()> {
     validate_hostname(name)?;
     sh("hostnamectl", &["set-hostname", name]).await?;
     update_etc_hosts(name)?;
-    write_ap_hostname_mapping(name)?;
+    write_ap_hostname_mapping(name, ap_ip)?;
     // Re-advertise <name>.local over mDNS and reload AP DNS (no-op if stopped).
     sh_ok("systemctl", &["restart", "avahi-daemon"]).await;
     sh_ok("systemctl", &["restart", "dnsmasq"]).await;
@@ -651,8 +763,7 @@ fn update_etc_hosts(name: &str) -> NetResult<()> {
 
 /// Make AP (dnsmasq) clients resolve `<name>` and `<name>.local` to the AP IP,
 /// so the box is reachable by name in hotspot mode even without mDNS.
-pub fn write_ap_hostname_mapping(name: &str) -> NetResult<()> {
-    let ap_ip = AP_IP_CIDR.split('/').next().unwrap_or("192.168.4.1");
+pub fn write_ap_hostname_mapping(name: &str, ap_ip: &str) -> NetResult<()> {
     let body = format!("address=/{name}/{ap_ip}\naddress=/{name}.local/{ap_ip}\n");
     std::fs::write(DNSMASQ_HOST_MAP, body).map_err(|e| e.to_string())
 }
