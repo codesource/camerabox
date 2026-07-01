@@ -299,12 +299,44 @@ iw dev                                         # wlan0 present, type AP
   `/tmp` under emulation, so `apt-get update` couldn't refresh and stale indexes
   404'd. Run apt as root: `apt-get -o APT::Sandbox::User=root update && …`
   (and `chmod 1777 /tmp` in the chroot). `prepare-sd.sh` already does this.
-- **Camera not detected.** Confirm `v4l2-ctl --list-devices` shows a `usb-…`
-  device; camera-box only manages USB capture devices.
+- **USB camera not detected / no `/dev/video0` (the big one).** First check the
+  USB level:
+
+  ```sh
+  lsusb                       # is the camera listed at all?
+  ls -l /dev/video*           # any V4L2 nodes?
+  sudo modprobe uvcvideo      # try to load the UVC driver
+  ```
+
+  Two cases:
+
+  1. **The camera does NOT appear in `lsusb`.** The USB port is in OTG/device
+     mode. Use the board's dedicated USB **HOST** port, or switch the port to
+     host mode (`luckfox-config`, or `dr_mode = "host"` in the device tree).
+
+  2. **The camera IS in `lsusb`, but there's no `/dev/video0` and
+     `modprobe uvcvideo` says `Module uvcvideo not found in directory
+     /lib/modules/<ver>`.** This is the common blocker: the Luckfox kernel was
+     **built without UVC** (these minimal RK3506 images strip the whole V4L2 /
+     media subsystem). Confirm:
+
+     ```sh
+     zcat /proc/config.gz 2>/dev/null | grep -iE 'USB_VIDEO_CLASS|VIDEO_DEV|MEDIA_SUPPORT'
+     find /lib/modules -iname '*uvc*' -o -iname 'videodev*'
+     ```
+
+     If `CONFIG_USB_VIDEO_CLASS` is unset and no modules are found, **you cannot
+     load it** — the driver was never compiled. `modprobe` can't fix a missing
+     driver. The only fix is a kernel with UVC enabled; build one and put it in
+     your image as described in
+     [Building an RK3506 Ubuntu image with UVC](rk3506-ubuntu-uvc-image.md).
+     Everything else (hotspot, dashboard) works on the stock kernel; **only USB
+     cameras** need the rebuilt kernel.
+
 - **Wi-Fi interface isn't `wlan0`.** camera-box uses the first wireless
   interface automatically, but the pre-written hostapd/dnsmasq/boot-IP files
   above assume `wlan0`; adjust them if your image names it differently.
 
 > These steps mirror the Raspberry Pi setup, which is verified; the Lyra-specific
-> parts (AIC8800 AP mode, `ustreamer` availability) should be confirmed on your
-> board on first run.
+> parts (AIC8800 AP mode, `ustreamer` availability, and especially **UVC camera
+> support** — see above) should be confirmed on your board.
