@@ -692,7 +692,7 @@ var LANG={
   cams_connected:"{n} camera(s) connected",no_cams_yet:"No cameras yet",no_cams_desc:"Plug a USB camera into the device and it will appear here automatically.",
   live:"Live",off:"Off",starting:"Starting…",camera_w:"Camera",quality:"Quality",preview:"Preview",advanced:"Advanced details",device:"Device",stream:"Stream",port:"Port",process:"Process",usb_id:"USB id",video_stream:"Video Stream",passthrough:"passthrough",
   quality_updated:"Quality updated.",cam_on:"Camera turned on.",cam_turned_off:"Camera turned off.",action_failed:"Action failed",
-  network_sub:"Manage how your camera-box connects to Wi-Fi.",current_conn:"Current connection",signal_exc:"Signal: Excellent",built_in:"built-in",wifi_setup:"Wi-Fi setup",adapter:"Adapter",scan:"Scan",scanning:"Scanning…",start_hotspot:"Start hotspot",hotspot_settings:"Hotspot settings",hotspot_name:"Hotspot name (SSID)",hotspot_pass:"Hotspot password",keep_current:"leave blank to keep current",save_hotspot:"Save hotspot",hotspot_saved:"Hotspot settings saved.",hotspot_ip:"Hotspot IP address",hotspot_ip_hint:"e.g. 192.168.4.1/24 — use a distinct subnet per box.",
+  network_sub:"Manage how your camera-box connects to Wi-Fi.",current_conn:"Current connection",signal_exc:"Signal: Excellent",built_in:"built-in",wifi_setup:"Wi-Fi setup",adapter:"Adapter",scan:"Scan",scanning:"Scanning…",start_hotspot:"Start hotspot",hotspot_settings:"Hotspot settings",hotspot_name:"Hotspot name (SSID)",hotspot_pass:"Hotspot password",keep_current:"leave blank to keep current",save_hotspot:"Save hotspot",hotspot_saved:"Hotspot settings saved.",hotspot_ip:"Hotspot IP address",hotspot_ip_hint:"e.g. 192.168.4.1/24 — use a distinct subnet per box.",ap_capable:"AP-capable",ip_addr:"IP address",mode:"Mode",tab_client:"Client",tab_ap:"Hotspot",no_wifi_ifaces:"No wireless interfaces found.",wifi_networks:"Wi-Fi networks",
   ssid_label:"Network name (SSID)",password:"Password",adv_static:"Advanced (static IP)",addressing:"Addressing",dhcp_auto:"Automatic (DHCP)",static_ip:"Static IP",static_ip_label:"Static IP (a.b.c.d/nn)",for_static:"for static only",save_as_opt:"Save as (optional)",connect:"Connect",
   saved_networks:"Saved networks",connect_using:"Connect using",no_saved:"No saved networks yet.",no_networks:"No networks found",connecting:"Connecting…",starting_hotspot:"Starting hotspot…",done:"Done.",failed:"Failed",conn_changed:"The connection changed — you may need to reconnect.",scan_failed:"Scan failed",
   your_device:"Your device",processor:"Processor",memory:"Memory",storage:"Storage",temperature:"Temperature",network_activity:"Network activity",measuring:"measuring…",interface:"Interface",down:"Down",up:"Up",
@@ -712,7 +712,7 @@ var LANG={
   cams_connected:"{n} caméra(s) connectée(s)",no_cams_yet:"Aucune caméra",no_cams_desc:"Branchez une caméra USB et elle apparaîtra automatiquement ici.",
   live:"En direct",off:"Arrêt",starting:"Démarrage…",camera_w:"Caméra",quality:"Qualité",preview:"Aperçu",advanced:"Détails avancés",device:"Appareil",stream:"Flux",port:"Port",process:"Processus",usb_id:"ID USB",video_stream:"Flux vidéo",passthrough:"direct",
   quality_updated:"Qualité mise à jour.",cam_on:"Caméra activée.",cam_turned_off:"Caméra désactivée.",action_failed:"Échec de l'action",
-  network_sub:"Gérez la connexion Wi-Fi de votre camera-box.",current_conn:"Connexion actuelle",signal_exc:"Signal : Excellent",built_in:"intégré",wifi_setup:"Configuration Wi-Fi",adapter:"Adaptateur",scan:"Rechercher",scanning:"Recherche…",start_hotspot:"Activer le point d'accès",hotspot_settings:"Paramètres du point d'accès",hotspot_name:"Nom du point d'accès (SSID)",hotspot_pass:"Mot de passe du point d'accès",keep_current:"laisser vide pour conserver",save_hotspot:"Enregistrer",hotspot_saved:"Paramètres du point d'accès enregistrés.",hotspot_ip:"Adresse IP du point d'accès",hotspot_ip_hint:"ex. 192.168.4.1/24 — un sous-réseau distinct par appareil.",
+  network_sub:"Gérez la connexion Wi-Fi de votre camera-box.",current_conn:"Connexion actuelle",signal_exc:"Signal : Excellent",built_in:"intégré",wifi_setup:"Configuration Wi-Fi",adapter:"Adaptateur",scan:"Rechercher",scanning:"Recherche…",start_hotspot:"Activer le point d'accès",hotspot_settings:"Paramètres du point d'accès",hotspot_name:"Nom du point d'accès (SSID)",hotspot_pass:"Mot de passe du point d'accès",keep_current:"laisser vide pour conserver",save_hotspot:"Enregistrer",hotspot_saved:"Paramètres du point d'accès enregistrés.",hotspot_ip:"Adresse IP du point d'accès",hotspot_ip_hint:"ex. 192.168.4.1/24 — un sous-réseau distinct par appareil.",ap_capable:"Compatible PA",ip_addr:"Adresse IP",mode:"Mode",tab_client:"Client",tab_ap:"Point d'accès",no_wifi_ifaces:"Aucune interface sans fil trouvée.",wifi_networks:"Réseaux Wi-Fi",
   ssid_label:"Nom du réseau (SSID)",password:"Mot de passe",adv_static:"Avancé (IP statique)",addressing:"Adressage",dhcp_auto:"Automatique (DHCP)",static_ip:"IP statique",static_ip_label:"IP statique (a.b.c.d/nn)",for_static:"pour IP statique uniquement",save_as_opt:"Enregistrer sous (facultatif)",connect:"Connecter",
   saved_networks:"Réseaux enregistrés",connect_using:"Se connecter via",no_saved:"Aucun réseau enregistré.",no_networks:"Aucun réseau trouvé",connecting:"Connexion…",starting_hotspot:"Activation du point d'accès…",done:"Terminé.",failed:"Échec",conn_changed:"La connexion a changé — vous devrez peut-être vous reconnecter.",scan_failed:"Échec de la recherche",
   your_device:"Votre appareil",processor:"Processeur",memory:"Mémoire",storage:"Stockage",temperature:"Température",network_activity:"Activité réseau",measuring:"mesure…",interface:"Interface",down:"Réception",up:"Émission",
@@ -732,7 +732,7 @@ var LANG={
   cams_connected:"{n} Kamera(s) verbunden",no_cams_yet:"Noch keine Kameras",no_cams_desc:"Schließen Sie eine USB-Kamera an, sie erscheint hier automatisch.",
   live:"Live",off:"Aus",starting:"Startet…",camera_w:"Kamera",quality:"Qualität",preview:"Vorschau",advanced:"Erweiterte Details",device:"Gerät",stream:"Stream",port:"Port",process:"Prozess",usb_id:"USB-ID",video_stream:"Videostream",passthrough:"Durchleitung",
   quality_updated:"Qualität aktualisiert.",cam_on:"Kamera eingeschaltet.",cam_turned_off:"Kamera ausgeschaltet.",action_failed:"Aktion fehlgeschlagen",
-  network_sub:"Verwalten Sie die WLAN-Verbindung Ihrer camera-box.",current_conn:"Aktuelle Verbindung",signal_exc:"Signal: Ausgezeichnet",built_in:"integriert",wifi_setup:"WLAN-Einrichtung",adapter:"Adapter",scan:"Suchen",scanning:"Suche…",start_hotspot:"Hotspot starten",hotspot_settings:"Hotspot-Einstellungen",hotspot_name:"Hotspot-Name (SSID)",hotspot_pass:"Hotspot-Passwort",keep_current:"leer lassen zum Beibehalten",save_hotspot:"Hotspot speichern",hotspot_saved:"Hotspot-Einstellungen gespeichert.",hotspot_ip:"Hotspot-IP-Adresse",hotspot_ip_hint:"z. B. 192.168.4.1/24 — je Gerät ein eigenes Subnetz.",
+  network_sub:"Verwalten Sie die WLAN-Verbindung Ihrer camera-box.",current_conn:"Aktuelle Verbindung",signal_exc:"Signal: Ausgezeichnet",built_in:"integriert",wifi_setup:"WLAN-Einrichtung",adapter:"Adapter",scan:"Suchen",scanning:"Suche…",start_hotspot:"Hotspot starten",hotspot_settings:"Hotspot-Einstellungen",hotspot_name:"Hotspot-Name (SSID)",hotspot_pass:"Hotspot-Passwort",keep_current:"leer lassen zum Beibehalten",save_hotspot:"Hotspot speichern",hotspot_saved:"Hotspot-Einstellungen gespeichert.",hotspot_ip:"Hotspot-IP-Adresse",hotspot_ip_hint:"z. B. 192.168.4.1/24 — je Gerät ein eigenes Subnetz.",ap_capable:"AP-fähig",ip_addr:"IP-Adresse",mode:"Modus",tab_client:"Client",tab_ap:"Hotspot",no_wifi_ifaces:"Keine WLAN-Schnittstellen gefunden.",wifi_networks:"WLAN-Netzwerke",
   ssid_label:"Netzwerkname (SSID)",password:"Passwort",adv_static:"Erweitert (statische IP)",addressing:"Adressierung",dhcp_auto:"Automatisch (DHCP)",static_ip:"Statische IP",static_ip_label:"Statische IP (a.b.c.d/nn)",for_static:"nur für statische IP",save_as_opt:"Speichern als (optional)",connect:"Verbinden",
   saved_networks:"Gespeicherte Netzwerke",connect_using:"Verbinden über",no_saved:"Noch keine gespeicherten Netzwerke.",no_networks:"Keine Netzwerke gefunden",connecting:"Verbinde…",starting_hotspot:"Hotspot wird gestartet…",done:"Fertig.",failed:"Fehlgeschlagen",conn_changed:"Die Verbindung hat sich geändert — möglicherweise müssen Sie sich erneut verbinden.",scan_failed:"Suche fehlgeschlagen",
   your_device:"Ihr Gerät",processor:"Prozessor",memory:"Arbeitsspeicher",storage:"Speicher",temperature:"Temperatur",network_activity:"Netzwerkaktivität",measuring:"messe…",interface:"Schnittstelle",down:"Empfang",up:"Senden",
@@ -752,7 +752,7 @@ var LANG={
   cams_connected:"{n} telecamera/e connessa/e",no_cams_yet:"Nessuna telecamera",no_cams_desc:"Collega una telecamera USB e apparirà qui automaticamente.",
   live:"In diretta",off:"Spenta",starting:"Avvio…",camera_w:"Telecamera",quality:"Qualità",preview:"Anteprima",advanced:"Dettagli avanzati",device:"Dispositivo",stream:"Flusso",port:"Porta",process:"Processo",usb_id:"ID USB",video_stream:"Flusso video",passthrough:"diretto",
   quality_updated:"Qualità aggiornata.",cam_on:"Telecamera attivata.",cam_turned_off:"Telecamera disattivata.",action_failed:"Azione non riuscita",
-  network_sub:"Gestisci come la tua camera-box si connette al Wi-Fi.",current_conn:"Connessione attuale",signal_exc:"Segnale: Eccellente",built_in:"integrato",wifi_setup:"Configurazione Wi-Fi",adapter:"Adattatore",scan:"Cerca",scanning:"Ricerca…",start_hotspot:"Avvia hotspot",hotspot_settings:"Impostazioni hotspot",hotspot_name:"Nome hotspot (SSID)",hotspot_pass:"Password hotspot",keep_current:"lascia vuoto per mantenere",save_hotspot:"Salva hotspot",hotspot_saved:"Impostazioni hotspot salvate.",hotspot_ip:"Indirizzo IP hotspot",hotspot_ip_hint:"es. 192.168.4.1/24 — una sottorete distinta per dispositivo.",
+  network_sub:"Gestisci come la tua camera-box si connette al Wi-Fi.",current_conn:"Connessione attuale",signal_exc:"Segnale: Eccellente",built_in:"integrato",wifi_setup:"Configurazione Wi-Fi",adapter:"Adattatore",scan:"Cerca",scanning:"Ricerca…",start_hotspot:"Avvia hotspot",hotspot_settings:"Impostazioni hotspot",hotspot_name:"Nome hotspot (SSID)",hotspot_pass:"Password hotspot",keep_current:"lascia vuoto per mantenere",save_hotspot:"Salva hotspot",hotspot_saved:"Impostazioni hotspot salvate.",hotspot_ip:"Indirizzo IP hotspot",hotspot_ip_hint:"es. 192.168.4.1/24 — una sottorete distinta per dispositivo.",ap_capable:"Compatibile AP",ip_addr:"Indirizzo IP",mode:"Modalità",tab_client:"Client",tab_ap:"Hotspot",no_wifi_ifaces:"Nessuna interfaccia wireless trovata.",wifi_networks:"Reti Wi-Fi",
   ssid_label:"Nome rete (SSID)",password:"Password",adv_static:"Avanzate (IP statico)",addressing:"Indirizzamento",dhcp_auto:"Automatico (DHCP)",static_ip:"IP statico",static_ip_label:"IP statico (a.b.c.d/nn)",for_static:"solo per IP statico",save_as_opt:"Salva come (facoltativo)",connect:"Connetti",
   saved_networks:"Reti salvate",connect_using:"Connetti tramite",no_saved:"Nessuna rete salvata.",no_networks:"Nessuna rete trovata",connecting:"Connessione…",starting_hotspot:"Avvio hotspot…",done:"Fatto.",failed:"Non riuscito",conn_changed:"La connessione è cambiata — potrebbe essere necessario riconnettersi.",scan_failed:"Ricerca non riuscita",
   your_device:"Il tuo dispositivo",processor:"Processore",memory:"Memoria",storage:"Archiviazione",temperature:"Temperatura",network_activity:"Attività di rete",measuring:"misurazione…",interface:"Interfaccia",down:"Download",up:"Upload",
@@ -769,7 +769,7 @@ function applyChrome(){ var ls=el('langsel'); if(ls)ls.value=lang; var hp=el('he
 
 // ===== helpers =====
 var page='dashboard', netPrev=null, sysAdvOpen=false;
-var S={status:null,system:null,network:null};
+var S={status:null,system:null,network:null,netIface:'',netTab:'client'};
 var L={q:'',level:'',auto:true,lines:[],built:false};
 function el(id){return document.getElementById(id);}
 function esc(t){var d=document.createElement('div');d.textContent=(t==null?'':t);return d.innerHTML;}
@@ -899,42 +899,63 @@ function camToggle(btn,id,on){ btn.classList.toggle('on'); var card=btn.closest(
 function loadNetwork(){ getJSON('/api/network').then(function(n){S.network=n;renderNetwork();}).catch(function(){}); }
 function cardOf(b){return b.closest('.card');}
 function renderNetwork(){
- var n=S.network||{interfaces:[],profiles:[]}, ni=netInfo();
+ var n=S.network||{interfaces:[],profiles:[]};
  var h='<h1 class="title">'+t('nav_network')+'</h1><p class="subtitle">'+t('network_sub')+'</p>';
- h+='<div class="card"><div class="row" style="gap:14px;align-items:flex-start"><div class="ic-circle ic-green">'+ic('wifi',22)+'</div><div style="flex:1"><div class="muted" style="font-weight:600">'+t('current_conn')+'</div>';
- if(ni.client) h+='<div class="statusbig">'+esc(ni.client.ssid||t('connected'))+'</div><div class="row" style="gap:16px"><span class="pill green"><span class="dot"></span>'+t('connected')+'</span><span class="muted">'+t('signal_exc')+'</span></div>';
- else if(ni.ap) h+='<div class="statusbig">'+esc(ni.ap.ssid||'Hotspot')+'</div><span class="pill orange">'+t('hotspot_mode')+'</span>';
- else h+='<div class="statusbig">'+t('not_connected')+'</div><span class="pill red">'+t('offline')+'</span>';
- h+='<details class="expander"><summary>'+ic('chevron',16)+t('advanced')+'</summary><div class="kvs">';
- n.interfaces.forEach(function(it){ h+='<div class="k">'+esc(it.name)+(it.primary?' ('+t('built_in')+')':'')+'</div><div class="v">'+esc(it.mode)+(it.ip?' · '+esc(it.ip):'')+'</div><div class="k">MAC</div><div class="v">'+esc(it.mac)+'</div>'; });
- h+='</div></details></div></div></div>';
- n.interfaces.forEach(function(it){ h+=netActionCard(it); });
- h+='<h2 class="sec">'+t('saved_networks')+'</h2><div class="card">';
- if(n.profiles&&n.profiles.length){ h+='<div class="row" style="margin-bottom:6px"><span class="muted">'+t('connect_using')+'</span><select id="pif" style="max-width:170px">'+n.interfaces.map(function(i){return '<option>'+esc(i.name)+'</option>';}).join('')+'</select></div>';
-  h+=n.profiles.map(function(p){return '<div class="row" style="justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border)"><div class="row" style="gap:10px">'+ic('wifi',18)+'<b>'+esc(p)+'</b></div><div class="row"><button class="btn sm" onclick="profConnect(\''+esc(p)+'\')">'+t('connect')+'</button><button class="btn sm" onclick="profRemove(\''+esc(p)+'\')" style="color:var(--danger)">'+ic('trash',15)+'</button></div></div>';}).join('');
- } else h+='<div class="empty" style="padding:24px"><div class="muted">'+t('no_saved')+'</div></div>';
- h+='</div>';
+ h+='<h2 class="sec">'+t('current_conn')+'</h2>';
+ if(n.interfaces.length) h+='<div class="grid cols-2">'+n.interfaces.map(ifaceStatusCard).join('')+'</div>';
+ else h+='<div class="card"><div class="empty" style="padding:30px"><div class="muted">'+t('no_wifi_ifaces')+'</div></div></div>';
+ h+='<h2 class="sec">'+t('wifi_setup')+'</h2>'+wifiSetupCard(n.interfaces,n.profiles);
  el('p-network').innerHTML=h;
 }
-function netActionCard(it){
- var ap=it.primary&&it.ap_capable;
- var apssid=(S.network&&S.network.ap&&S.network.ap.ssid)||'';
- var apip=(S.network&&S.network.ap&&S.network.ap.ip)||'192.168.4.1/24';
- return '<div class="card" style="margin-top:18px"><div class="row" style="justify-content:space-between"><h2 style="margin:0;font-size:16px">'+(it.primary?t('wifi_setup'):t('adapter')+' '+esc(it.name))+'</h2>'+
-  '<div class="row"><button class="btn sm scanbtn" onclick="doScan(this,\''+esc(it.name)+'\')">'+ic('search',16)+t('scan')+'</button>'+(ap?'<button class="btn sm" onclick="doHotspot(this,\''+esc(it.name)+'\')">'+ic('wifi',16)+t('start_hotspot')+'</button>':'')+'</div></div>'+
-  (ap?('<div style="border:1px solid var(--border);border-radius:12px;padding:14px;margin:14px 0"><div style="font-weight:600;margin-bottom:6px">'+t('hotspot_settings')+'</div>'+
-   '<label>'+t('hotspot_name')+'</label><input class="apssid" value="'+esc(apssid)+'">'+
-   '<label>'+t('hotspot_pass')+'</label><input class="appass" type="password" placeholder="'+t('keep_current')+'">'+
-   '<label>'+t('hotspot_ip')+'</label><input class="apip" value="'+esc(apip)+'"><div class="muted" style="font-size:12px;margin-top:4px">'+t('hotspot_ip_hint')+'</div>'+
-   '<div class="row" style="margin-top:12px"><button class="btn sm" onclick="saveAp(this)">'+ic('wifi',16)+t('save_hotspot')+'</button></div></div>'):'')+
+function ifaceStatusCard(it){
+ var cl=it.mode==='ap'?'orange':(it.mode==='client'&&it.up?'green':'red');
+ var lbl=it.mode==='ap'?t('hotspot_mode'):(it.mode==='client'&&it.up?t('connected'):t('offline'));
+ return '<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div class="row" style="gap:12px">'+
+   '<div class="ic-circle ic-'+cl+'">'+ic('wifi',20)+'</div>'+
+   '<div><div class="statusbig" style="font-size:16px;margin:0">'+esc(it.name)+'</div><div class="muted" style="font-size:12.5px">'+(it.primary?t('built_in'):t('adapter'))+(it.ap_capable?' · '+t('ap_capable'):'')+'</div></div></div>'+
+   '<span class="pill '+cl+'">'+(it.mode==='client'&&it.up?'<span class="dot"></span>':'')+esc(lbl)+'</span></div>'+
+   '<div class="kvs" style="margin-top:14px;grid-template-columns:auto 1fr">'+
+     (it.ssid?'<div class="k">SSID</div><div class="v" style="text-align:left">'+esc(it.ssid)+'</div>':'')+
+     '<div class="k">'+t('ip_addr')+'</div><div class="v" style="text-align:left">'+esc(it.ip||'—')+'</div>'+
+     '<div class="k">'+t('mode')+'</div><div class="v" style="text-align:left">'+esc(it.mode)+'</div>'+
+     '<div class="k">MAC</div><div class="v" style="text-align:left">'+esc(it.mac)+'</div>'+
+   '</div></div>';
+}
+function wifiSetupCard(ifaces,profiles){
+ if(!ifaces.length) return '<div class="card"><div class="empty" style="padding:30px"><div class="muted">'+t('no_wifi_ifaces')+'</div></div></div>';
+ var sel=ifaces.filter(function(i){return i.name===S.netIface;})[0]||ifaces[0]; S.netIface=sel.name;
+ var tab=S.netTab==='ap'?'ap':'client'; if(tab==='ap'&&!sel.ap_capable)tab='client'; S.netTab=tab;
+ var h='<div class="card">';
+ if(ifaces.length>1){ h+='<label style="margin-top:0">'+t('interface')+'</label><div class="seg" style="margin-bottom:16px">'+ifaces.map(function(i){return '<button class="'+(i.name===sel.name?'active':'')+'" onclick="netSelIface(\''+esc(i.name)+'\')">'+esc(i.name)+'</button>';}).join('')+'</div>'; }
+ else { h+='<div class="row" style="gap:10px;margin-bottom:16px"><div class="ic-circle ic-blue" style="width:36px;height:36px;border-radius:11px">'+ic('wifi',18)+'</div><div><b>'+esc(sel.name)+'</b> <span class="muted" style="font-size:13px">'+(sel.primary?t('built_in'):t('adapter'))+'</span></div></div>'; }
+ h+='<div class="seg" style="margin-bottom:18px"><button class="'+(tab==='client'?'active':'')+'" onclick="netSelTab(\'client\')">'+t('tab_client')+'</button>'+(sel.ap_capable?'<button class="'+(tab==='ap'?'active':'')+'" onclick="netSelTab(\'ap\')">'+t('tab_ap')+'</button>':'')+'</div>';
+ h+=(tab==='ap'?apPane(sel):clientPane(sel,profiles));
+ return h+'</div>';
+}
+function clientPane(it,profiles){
+ var h='<div class="row" style="justify-content:space-between;align-items:center"><div class="muted" style="font-weight:600">'+t('wifi_networks')+'</div><button class="btn sm scanbtn" onclick="doScan(this,\''+esc(it.name)+'\')">'+ic('search',16)+t('scan')+'</button></div>'+
   '<div class="netlist"></div>'+
   '<label>'+t('ssid_label')+'</label><input class="ssid"><label>'+t('password')+'</label><input class="pass" type="password">'+
   '<details class="expander"><summary>'+ic('chevron',16)+t('adv_static')+'</summary>'+
    '<label>'+t('addressing')+'</label><select class="dhcp"><option value="1">'+t('dhcp_auto')+'</option><option value="0">'+t('static_ip')+'</option></select>'+
    '<label>'+t('static_ip_label')+'</label><input class="addr" placeholder="'+t('for_static')+'">'+
    '<label>'+t('save_as_opt')+'</label><input class="saveas"></details>'+
-  '<div class="row" style="margin-top:16px"><button class="btn primary" onclick="doConnect(this,\''+esc(it.name)+'\')">'+t('connect')+'</button></div></div>';
+  '<div class="row" style="margin-top:16px"><button class="btn primary" onclick="doConnect(this,\''+esc(it.name)+'\')">'+ic('wifi',16)+t('connect')+'</button></div>';
+ h+='<div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px"><div class="muted" style="font-weight:600;margin-bottom:6px">'+t('saved_networks')+'</div>';
+ if(profiles&&profiles.length){ h+=profiles.map(function(p){return '<div class="row" style="justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border)"><div class="row" style="gap:10px">'+ic('wifi',16)+'<b>'+esc(p)+'</b></div><div class="row"><button class="btn sm" onclick="profConnect(\''+esc(p)+'\',\''+esc(it.name)+'\')">'+t('connect')+'</button><button class="btn sm" onclick="profRemove(\''+esc(p)+'\')" style="color:var(--danger)">'+ic('trash',15)+'</button></div></div>';}).join(''); }
+ else h+='<div class="muted" style="padding:8px 0">'+t('no_saved')+'</div>';
+ return h+'</div>';
 }
+function apPane(it){
+ var apssid=(S.network&&S.network.ap&&S.network.ap.ssid)||'';
+ var apip=(S.network&&S.network.ap&&S.network.ap.ip)||'192.168.4.1/24';
+ return '<label style="margin-top:0">'+t('hotspot_name')+'</label><input class="apssid" value="'+esc(apssid)+'">'+
+  '<label>'+t('hotspot_pass')+'</label><input class="appass" type="password" placeholder="'+t('keep_current')+'">'+
+  '<label>'+t('hotspot_ip')+'</label><input class="apip" value="'+esc(apip)+'"><div class="muted" style="font-size:12px;margin-top:4px">'+t('hotspot_ip_hint')+'</div>'+
+  '<div class="row" style="margin-top:18px"><button class="btn" onclick="saveAp(this)">'+ic('wifi',16)+t('save_hotspot')+'</button><button class="btn primary" onclick="doHotspot(this,\''+esc(it.name)+'\')">'+ic('wifi',16)+t('start_hotspot')+'</button></div>';
+}
+function netSelIface(n){S.netIface=n;renderNetwork();}
+function netSelTab(tt){S.netTab=tt;renderNetwork();}
 function actP(promise){ return promise.then(function(r){return r.json().catch(function(){return{};}).then(function(d){return{ok:r.ok,d:d};});}).then(function(x){toast(x.ok?t('done'):((x.d&&x.d.error)||t('failed')),!x.ok);setTimeout(loadNetwork,1600);}).catch(function(){toast(t('conn_changed'),1);}); }
 function doScan(btn,iface){ btn.disabled=true; var o=btn.innerHTML; btn.textContent=t('scanning');
  api('POST','/api/network/scan',{iface:iface}).then(function(r){return r.json();}).then(function(d){ btn.disabled=false; btn.innerHTML=o;
@@ -945,7 +966,7 @@ function doScan(btn,iface){ btn.disabled=true; var o=btn.innerHTML; btn.textCont
 function doConnect(btn,iface){var c=cardOf(btn);var body={iface:iface,ssid:c.querySelector('.ssid').value,password:c.querySelector('.pass').value,dhcp:c.querySelector('.dhcp').value==='1'};var a=c.querySelector('.addr').value;if(!body.dhcp&&a)body.address=a;var s=c.querySelector('.saveas').value;if(s)body.save_as=s;toast(t('connecting'));actP(api('POST','/api/network/connect',body));}
 function doHotspot(btn,iface){toast(t('starting_hotspot'));actP(api('POST','/api/network/hotspot',{iface:iface}));}
 function saveAp(btn){var c=cardOf(btn);var body={ssid:c.querySelector('.apssid').value};var p=c.querySelector('.appass').value;if(p)body.password=p;var ip=c.querySelector('.apip');if(ip&&ip.value)body.ip=ip.value;toast(t('hotspot_saved'));actP(api('POST','/api/network/ap',body));}
-function profConnect(p){var pif=el('pif');actP(api('POST','/api/network/profile/connect',{iface:pif?pif.value:undefined,name:p}));}
+function profConnect(p,iface){actP(api('POST','/api/network/profile/connect',{iface:iface,name:p}));}
 function profRemove(p){actP(api('POST','/api/network/profile/remove',{name:p}));}
 
 // ===== System =====
