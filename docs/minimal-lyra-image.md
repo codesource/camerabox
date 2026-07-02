@@ -27,14 +27,19 @@ camera-box for `wlan0`. The minimal image fixes both, permanently:
 - **Rootfs** — a `debootstrap` Debian *minbase* containing **only** the
   camera-box requirements: `systemd`, `sshd`, `hostapd`, `dnsmasq`, `iw`,
   `wpa_supplicant`, `dhclient`, `avahi-daemon`, `rfkill`, `ustreamer`
-  (plus tiny debug helpers: `usbutils`, `v4l-utils`). No netplan, no
+  (plus tiny debug helpers: `usbutils`, `v4l-utils`, `htop`). No netplan, no
   NetworkManager, no cloud-init — nothing to steal `wlan0` from camera-box.
-- **Boot chain** — the bootloader and partition table are taken **verbatim**
-  from a known-good dd-able base image whose boot on this board is proven
-  (e.g. `Luckfox_Lyra_Zero_W-2503_Ubuntu.img.bz2` from
-  [platima/SBC-Images](https://github.com/platima/SBC-Images/tree/main/Luckfox/Lyra/Lyra%20Zero%20W)).
-  Only the kernel (boot partition) and the rootfs are replaced; the AIC8800
-  firmware blobs are harvested from that base image.
+- **Boot chain** — the partition table comes from a known-good dd-able base
+  image (e.g. `Luckfox_Lyra_Zero_W-2503_Ubuntu.img.bz2` from
+  [platima/SBC-Images](https://github.com/platima/SBC-Images/tree/main/Luckfox/Lyra/Lyra%20Zero%20W)),
+  but the boot chain is built fresh and written **in full**: idblock at
+  sector 64 + u-boot in the `uboot` partition + kernel in the `boot`
+  partition, all from the same SDK build. Important discovery: the community
+  base image carries **no loader on the SD at all** (sector 64 is empty — it
+  relied on a factory u-boot in the board's SPI flash), so it stops booting
+  once the SPI is erased. The camera-box minimal image is **self-booting**,
+  SPI erased or not. The AIC8800 firmware blobs come from the SDK (with a
+  base-image harvest as fallback).
 
 The built image is **generic**: no camera-box binary, no hotspot credentials.
 Those are the deployment layer — `prepare-sd.sh` installs the binary and writes
@@ -63,19 +68,21 @@ Full details: [rk3506-ubuntu-uvc-image.md](rk3506-ubuntu-uvc-image.md).
 One-time setup:
 
 ```sh
-git clone -b luckfox-bpi https://github.com/markbirss/rk3506-ubuntu.git
+git clone --depth 1 -b luckfox-bpi https://github.com/markbirss/rk3506-ubuntu.git
 cd rk3506-ubuntu
 # select the rk3506 chip (verbatim from the SDK README):
 ( cd device/rockchip/.chips/rk3506 && \
   ln -s .chips/rk3506 ../../rk3506 && ln -s .chips/rk3506 ../../.chip )
-# build environment + board selection (interactive), all inside docker:
-docker build --rm -f rk3506-ubuntu.dockerfile -t lyra:rk3506-ubuntu-build .
-docker run --rm -it -v "$PWD":/build -w /build \
-  --entrypoint /bin/bash lyra:rk3506-ubuntu-build -c './build.sh lunch'
 ```
 
-(The Ubuntu-rootfs download from the SDK README is **not** needed — only the
-kernel is built; the camera-box rootfs comes from `debootstrap`.)
+That's the whole SDK setup. The build script does the rest itself: it builds
+the SDK's Docker image if missing, selects the Lyra Zero W board
+**non-interactively** (`./build.sh luckfox_lyra_zero-w_ubuntu_sdmmc_defconfig`
+— no interactive `lunch`), registers the UVC kernel-config fragment, and
+builds the kernel **and the external AIC8800 USB Wi-Fi driver** (with its
+firmware, installed to the driver's default `/lib/firmware/aic8800DC`).
+The Ubuntu-rootfs download from the SDK README is **not** needed — only the
+kernel is built; the camera-box rootfs comes from `debootstrap`.
 
 **Base image**: download a dd-able Ubuntu image for the Lyra Zero W from
 [platima/SBC-Images](https://github.com/platima/SBC-Images/tree/main/Luckfox/Lyra/Lyra%20Zero%20W)
@@ -126,8 +133,11 @@ root login, and enables the services. Different boxes = same image, different
 
 ## 4. First boot
 
-1. On a **fresh board**, erase the onboard SPI flash once so it boots from SD —
-   see [luckfox-lyra-zero-w.md](luckfox-lyra-zero-w.md#troubleshooting).
+1. On a **fresh board** whose SPI flash still holds the factory
+   Buildroot system, erase the SPI once so the board boots from SD — see
+   [luckfox-lyra-zero-w.md](luckfox-lyra-zero-w.md#troubleshooting). (An
+   already-erased SPI is fine: this image carries its own complete boot
+   chain.)
 2. Insert the card, power on, wait ~30 s.
 3. Connect to the **CameraBox** Wi-Fi → `http://192.168.4.1/`
    (admin / password), or `ssh root@192.168.4.1`.

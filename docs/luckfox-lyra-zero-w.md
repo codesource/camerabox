@@ -300,6 +300,10 @@ iw dev                                         # wlan0 present, type AP
   (loader from the Luckfox SDK) and `rkdeveloptool ef` (erase flash), or use
   RKDevTool → *Advanced → Erase All* on Windows. After erasing, the board boots
   from the SD card (and USB host works). See the Luckfox image-flashing wiki.
+  ⚠️ With the SPI erased, the **community Ubuntu image no longer boots at
+  all** — it carries no loader on the SD (sector 64 empty; it depended on the
+  factory u-boot in SPI). The **camera-box minimal image is self-booting**
+  (idblock + u-boot + kernel all on the card) and works either way.
 - **No hotspot appears.** Check `journalctl -u hostapd -b`. The AIC8800 Wi-Fi
   driver is out-of-tree; if hostapd won't start in AP mode, confirm the driver
   is loaded (`iw dev`, `dmesg | grep -i aic`) and that the Luckfox image includes

@@ -37,10 +37,10 @@ SDK commands inside that container; your host only needs `git` and `docker`.
 
 ## 1. One-time setup
 
-### Get the SDK (~a few GB)
+### Get the SDK (~8 GB)
 
 ```sh
-git clone -b luckfox-bpi https://github.com/markbirss/rk3506-ubuntu.git
+git clone --depth 1 -b luckfox-bpi https://github.com/markbirss/rk3506-ubuntu.git
 cd rk3506-ubuntu
 
 # select the rk3506 chip (from the SDK README, verbatim):
@@ -68,59 +68,95 @@ sdk() { docker run --rm -it -v "$PWD":/build -w /build \
         --entrypoint /bin/bash lyra:rk3506-ubuntu-build -c "$*"; }
 ```
 
-### Select the board (one-time, interactive)
+### Select the board (non-interactive — no `lunch` needed)
+
+`build.sh` accepts a board defconfig name directly; for the Lyra Zero W on SD:
 
 ```sh
-sdk './build.sh lunch'     # choose the Luckfox Lyra Zero W board config
+sdk './build.sh luckfox_lyra_zero-w_ubuntu_sdmmc_defconfig'
 ```
+
+That board config declares everything relevant:
+`RK_KERNEL_CFG="rk3506_luckfox_defconfig"`,
+`RK_KERNEL_CFG_FRAGMENTS="rk3506-display.config"`,
+`RK_KERNEL_DTS_NAME="rk3506b-luckfox-lyra-zero-w-sd"`,
+`RK_WIFIBT_CHIP="AIC8800DC"`.
+
+> `build.sh` must run **as root inside the container** when the Ubuntu profile
+> is selected (it refuses otherwise) — so no `--user` on `docker run`.
 
 ## 2. Enable UVC in the kernel — the essential change
 
-Two equivalent ways; the **defconfig fragment** survives clean rebuilds and is
-what the automated script does:
+⚠️ **Appending to the kernel defconfig does NOT work** in this SDK. The build
+runs `make <defconfig> <fragment>.config …` and merges fragments **after** the
+defconfig — `rk3506-display.config` touches the media options and silently
+overrides an appended `USB_VIDEO_CLASS`. (Verified: the appended block yielded
+`# CONFIG_MEDIA_USB_SUPPORT is not set`.)
+
+The SDK-native way is to register **your own fragment, last** — later
+fragments always win:
 
 ```sh
-# find the board defconfig the build uses:
-ls kernel-6.1/arch/arm/configs | grep -iE 'rk3506|lyra'
-
-cat >> kernel-6.1/arch/arm/configs/<board>_defconfig <<'EOF'
-
-# camera-box: UVC (USB webcam) support — do not remove
+cat > kernel-6.1/arch/arm/configs/rk3506-uvc.config <<'EOF'
+# camera-box: UVC (USB webcam) support
 CONFIG_MEDIA_SUPPORT=y
 CONFIG_MEDIA_USB_SUPPORT=y
 CONFIG_MEDIA_CAMERA_SUPPORT=y
 CONFIG_VIDEO_DEV=y
 CONFIG_USB_VIDEO_CLASS=m
 EOF
-rm -f kernel-6.1/.config      # a stale .config would shadow the change
+
+# register it after the existing fragments in the board defconfig:
+sed -i 's/^RK_KERNEL_CFG_FRAGMENTS="rk3506-display.config"$/RK_KERNEL_CFG_FRAGMENTS="rk3506-display.config rk3506-uvc.config"/' \
+    device/rockchip/.chips/rk3506/luckfox_lyra_zero-w_ubuntu_sdmmc_defconfig
+
+# re-run the board select so the new fragment list is picked up:
+sdk './build.sh luckfox_lyra_zero-w_ubuntu_sdmmc_defconfig'
 ```
 
-Or interactively (inside the container): `sdk './build.sh kernel-config'` /
-menuconfig → `/` → search `USB_VIDEO_CLASS` → `M` → save. Either way, verify
-after the build that `kernel-6.1/.config` contains `CONFIG_USB_VIDEO_CLASS=m`.
+After the build, verify `kernel-6.1/.config` contains
+`CONFIG_USB_VIDEO_CLASS=m` **and** `CONFIG_MEDIA_USB_SUPPORT=y`.
 
-## 3. Build the kernel (all you need for camera-box)
+## 3. Build the kernel + Wi-Fi driver (all you need for camera-box)
 
 ```sh
 sdk './build.sh kernel'
 ```
 
-This produces the Rockchip **`boot.img`** (kernel + dtb packed; look in
-`kernel-6.1/`, `output/`, or `rockdev/` depending on SDK version) and the
-modules tree. To stage the modules for a rootfs (what the automated script
-does):
+Produces the Rockchip **`boot.img`** at `kernel-6.1/boot.img` (a zboot/FIT
+image, also linked from `output/firmware/boot.img`) and compiles the modules
+(`uvcvideo.ko` included). Stage the modules — use the **linux-gnueabihf**
+toolchain from `prebuilts` (there is also a bare-metal `arm-none-eabi` one;
+wrong for this):
 
 ```sh
-sdk 'make -C kernel-6.1 ARCH=arm \
-     CROSS_COMPILE=$PWD/prebuilts/gcc/linux-x86/arm/*/bin/arm-*- \
-     INSTALL_MOD_PATH=$PWD/.camerabox-modules INSTALL_MOD_STRIP=1 modules_install'
+sdk 'CROSS=$PWD/prebuilts/gcc/linux-x86/arm/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-
+     make -C kernel-6.1 ARCH=arm CROSS_COMPILE=$CROSS \
+          INSTALL_MOD_PATH=$PWD/.camerabox-modules INSTALL_MOD_STRIP=1 modules_install'
 ```
 
-**That's the hand-off point**: give the `boot.img` + modules to
+**The AIC8800DC Wi-Fi driver is an external module** (not in-tree):
+`external/rkwifibt/drivers/aic8800/aic8800` (defaults already right for this
+board: `CONFIG_USB_SUPPORT=y`, SDIO off). Its Makefile uses `$(PWD)` for `M=`,
+so it **must be built from inside its directory** — `make -C` silently builds
+nothing:
+
+```sh
+sdk 'CROSS=$PWD/prebuilts/gcc/linux-x86/arm/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-
+     SDKROOT=$PWD; cd external/rkwifibt/drivers/aic8800/aic8800 &&
+     make KDIR=$SDKROOT/kernel-6.1 ARCH=arm CROSS_COMPILE=$CROSS'
+```
+
+That yields `aic_load_fw/aic_load_fw.ko` and `aic8800_fdrv/aic8800_fdrv.ko`
+(install them under `updates/` in the modules tree). The matching firmware
+ships in the SDK at `external/rkwifibt/firmware/aicsemi/aic8800DC/` and the
+driver's built-in default path is **`/lib/firmware/aic8800DC`**.
+
+**That's the hand-off point**: the
 [`scripts/build-minimal-image-luckfox-lyra-zero-w.sh`](../scripts/build-minimal-image-luckfox-lyra-zero-w.sh)
-(it runs steps 2–3 itself when you point it at the SDK with `--sdk`), which
-assembles the camera-box minimal image; then deploy cards with
-`prepare-sd.sh`. You're done — the rest of this page is optional.
+script does ALL of sections 1–3 itself when pointed at the SDK with `--sdk`,
+then assembles the camera-box minimal image; deploy cards with `prepare-sd.sh`.
+You're done — the rest of this page is optional.
 
 ## 4. Optional: the SDK's own full-Ubuntu image
 

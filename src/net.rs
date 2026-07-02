@@ -300,7 +300,10 @@ pub async fn start_hotspot(iface: &str, ap: &ApConfig) -> NetResult<()> {
     stop_client(iface).await;
     // Wi-Fi can be rfkill soft-blocked (especially after a reboot); unblock it
     // or `ip link set up` fails (exit 2) and the interface stays down.
-    sh_ok("rfkill", &["unblock", "wifi"]).await;
+    // Unblock ALL types, not just wifi: on combo chips (e.g. the Lyra's
+    // AIC8800DC) the BLUETOOTH rfkill drives the chip's power GPIO — leaving
+    // it blocked keeps the whole module unpowered and off the USB bus.
+    sh_ok("rfkill", &["unblock", "all"]).await;
     sh_ok("ip", &["addr", "flush", "dev", iface]).await;
     sh_ok("ip", &["link", "set", iface, "down"]).await;
     sleep(Duration::from_secs(1)).await;
@@ -482,7 +485,7 @@ fn write_camera_box_ip_unit(iface: &str, ap: &ApConfig) -> NetResult<()> {
          \n\
          [Service]\n\
          Type=oneshot\n\
-         ExecStartPre=-/usr/sbin/rfkill unblock wifi\n\
+         ExecStartPre=-/usr/sbin/rfkill unblock all\n\
          ExecStart=/sbin/ip addr flush dev {iface}\n\
          ExecStart=/sbin/ip addr add {cidr} dev {iface}\n\
          ExecStart=/sbin/ip link set {iface} up\n\

@@ -29,28 +29,27 @@
 #            requirements: systemd, sshd, hostapd, dnsmasq, iw, wpa_supplicant,
 #            dhclient, avahi, rfkill, ustreamer (+ tiny debug helpers:
 #            usbutils, v4l-utils). No netplan, no NetworkManager, no cloud-init.
-#   BOOT   — bootloader + partition table taken VERBATIM from a known-good
-#            dd-able base image (e.g. Luckfox_Lyra_Zero_W-2503_Ubuntu), whose
-#            boot chain is proven on this board; only the kernel (boot
-#            partition) and the rootfs are replaced. The AIC8800 firmware blobs
-#            are harvested from that base image too.
+#   BOOT   — the partition table comes from a known-good dd-able base image
+#            (e.g. Luckfox_Lyra_Zero_W-2503_Ubuntu), but the boot chain is
+#            built fresh and written in FULL: idblock at sector 64 + u-boot
+#            in the 'uboot' partition + kernel in the 'boot' partition, all
+#            from the same SDK build. The community base image itself carries
+#            NO loader on the SD (it relied on a factory u-boot in SPI
+#            flash!) — this image is SELF-BOOTING, SPI erased or not.
 #
 # Run on an x86-64 Linux PC, as root. It is INTERACTIVE: missing inputs are
 # prompted for, and it checks free disk space in the chosen folders before
 # starting. One-time SDK setup (see docs/rk3506-ubuntu-uvc-image.md):
 #
-#   git clone -b luckfox-bpi https://github.com/markbirss/rk3506-ubuntu.git
+#   git clone --depth 1 -b luckfox-bpi https://github.com/markbirss/rk3506-ubuntu.git
 #   cd rk3506-ubuntu/device/rockchip/.chips/rk3506
 #   ln -s .chips/rk3506 ../../rk3506 && ln -s .chips/rk3506 ../../.chip
-#   cd ../../../../
-#   docker build --rm -f rk3506-ubuntu.dockerfile -t lyra:rk3506-ubuntu-build .
-#   docker run --rm -it -v $PWD:/build -w /build --entrypoint /bin/bash \
-#       lyra:rk3506-ubuntu-build -c './build.sh lunch'    # pick the Lyra Zero W
 #
-# (This script builds the docker image itself if it's missing, and dies with
-# these instructions if the SDK isn't bootstrapped/lunched yet. The Ubuntu
-# rootfs download from the SDK README is NOT needed — only the kernel is
-# built here; the rootfs comes from debootstrap.)
+# That's all: this script builds the SDK's docker image itself if missing and
+# selects the Lyra Zero W board non-interactively ('./build.sh
+# luckfox_lyra_zero-w_ubuntu_sdmmc_defconfig' — no './build.sh lunch' needed).
+# The Ubuntu rootfs download from the SDK README is NOT needed either — only
+# the kernel is built here; the rootfs comes from debootstrap.
 #
 #   sudo bash scripts/build-minimal-image-luckfox-lyra-zero-w.sh \
 #       [--sdk ~/rk3506-ubuntu] \
@@ -100,7 +99,7 @@ PKGS_CORE="systemd systemd-sysv systemd-timesyncd udev dbus kmod
            openssh-server iproute2 hostapd dnsmasq iw wpasupplicant
            isc-dhcp-client avahi-daemon rfkill wireless-regdb ca-certificates"
 # Small but invaluable on a headless camera box; trim if you want it tighter.
-PKGS_DEBUG="usbutils v4l-utils iputils-ping"
+PKGS_DEBUG="usbutils v4l-utils iputils-ping htop"
 
 die()  { echo "error: $*" >&2; exit 1; }
 warn() { echo ">> WARN: $*" >&2; }
@@ -162,7 +161,7 @@ if [[ -z "$KEEP_BASE_KERNEL" ]]; then
     [[ -e "$SDK/device/rockchip/.chip" ]] || die "SDK not bootstrapped: device/rockchip/.chip is missing. One-time setup:
     cd $SDK/device/rockchip/.chips/rk3506
     ln -s .chips/rk3506 ../../rk3506 && ln -s .chips/rk3506 ../../.chip
-then run './build.sh lunch' in the build environment (see docs/rk3506-ubuntu-uvc-image.md)."
+(board selection is done automatically by this script — no './build.sh lunch' needed)"
 fi
 
 # The SDK's own build environment: Ubuntu 22.04 + python2 + a global
@@ -272,30 +271,38 @@ if [[ -z "$KEEP_BASE_KERNEL" ]]; then
     [[ -n "$KDIR" ]] || die "couldn't find the kernel tree under $SDK (expected \$SDK/kernel*/Makefile)"
     info "kernel tree: $KDIR"
 
-    if [[ -z "$SKIP_KERNEL" ]]; then
-        # -- enable UVC in the board defconfig (idempotent, marker-guarded) ---
-        # Exactly the options from docs/rk3506-ubuntu-uvc-image.md.
-        DEFCONFIG="$(ls "$KDIR/arch/arm/configs" | grep -iE 'rk3506|lyra' | head -1)"
-        [[ -n "$DEFCONFIG" ]] || die "no rk3506/lyra defconfig in $KDIR/arch/arm/configs — pass the right SDK"
-        info "board defconfig: $DEFCONFIG"
-        if ! grep -q '# camera-box: UVC' "$KDIR/arch/arm/configs/$DEFCONFIG"; then
-            cat >> "$KDIR/arch/arm/configs/$DEFCONFIG" <<'EOF'
+    BOARD_DEFCONFIG="luckfox_lyra_zero-w_ubuntu_sdmmc_defconfig"
+    BOARD_CFG="$SDK/device/rockchip/.chip/$BOARD_DEFCONFIG"
+    [[ -f "$BOARD_CFG" ]] || die "board defconfig not found: $BOARD_CFG (SDK layout changed?)"
 
-# camera-box: UVC (USB webcam) support — do not remove
+    if [[ -z "$SKIP_KERNEL" ]]; then
+        # -- enable UVC via a kernel config FRAGMENT (idempotent) -------------
+        # Appending to the kernel defconfig does NOT survive: the SDK builds
+        # with 'make <defconfig> <fragment>.config ...' and later fragments
+        # override earlier values (rk3506-display.config touches the media
+        # options). Registering our own fragment LAST is the SDK-native
+        # mechanism and always wins. (Verified on kernel 6.1.99.)
+        cat > "$KDIR/arch/arm/configs/rk3506-uvc.config" <<'EOF'
+# camera-box: UVC (USB webcam) support
 CONFIG_MEDIA_SUPPORT=y
 CONFIG_MEDIA_USB_SUPPORT=y
 CONFIG_MEDIA_CAMERA_SUPPORT=y
 CONFIG_VIDEO_DEV=y
 CONFIG_USB_VIDEO_CLASS=m
 EOF
-            info "appended the UVC config block to $DEFCONFIG"
-        else
-            info "UVC config block already present in $DEFCONFIG"
+        if ! grep -q 'rk3506-uvc.config' "$BOARD_CFG"; then
+            sed -i 's/^RK_KERNEL_CFG_FRAGMENTS="\(.*\)"$/RK_KERNEL_CFG_FRAGMENTS="\1 rk3506-uvc.config"/' "$BOARD_CFG"
+            grep -q 'rk3506-uvc.config' "$BOARD_CFG" \
+                || echo 'RK_KERNEL_CFG_FRAGMENTS="rk3506-uvc.config"' >> "$BOARD_CFG"
         fi
-        # a stale .config would shadow the defconfig change on some SDK builds
-        [[ -f "$KDIR/.config" ]] && grep -q '^CONFIG_USB_VIDEO_CLASS=m' "$KDIR/.config" \
-            || rm -f "$KDIR/.config"
+        info "UVC fragment registered in $BOARD_DEFCONFIG"
 
+        # select the board non-interactively — './build.sh <name>_defconfig'
+        # replaces the interactive './build.sh lunch'. Both the select and the
+        # build must run as root in the container (build.sh refuses otherwise
+        # when the Ubuntu profile is active).
+        info "selecting board: $BOARD_DEFCONFIG"
+        sdk_run "./build.sh $BOARD_DEFCONFIG" || die "board select failed"
         if [[ -n "$NATIVE" ]]; then env_label="native"; else env_label="in docker"; fi
         info "building the kernel via the SDK ($env_label) — this is the long part"
         sdk_run './build.sh kernel' || die "SDK kernel build failed — check the SDK output above"
@@ -316,10 +323,12 @@ EOF
 
     # stage the modules from inside the build environment (host has no
     # matching toolchain/python2); the staging dir lives in the bind-mounted
-    # SDK so the host can copy from it afterwards
+    # SDK so the host can copy from it afterwards.
+    # Toolchain: prebuilts ships TWO — pick the Linux one (gnueabihf), NOT
+    # the bare-metal arm-none-eabi.
     KREL="${KDIR##*/}"                       # e.g. kernel-6.1
-    CROSS="$(find "$SDK/prebuilts" -path '*bin/arm-*-gcc' 2>/dev/null | head -1)"
-    [[ -n "$CROSS" ]] || die "no ARM cross toolchain under $SDK/prebuilts"
+    CROSS="$(find "$SDK/prebuilts" -path '*gnueabihf*/bin/arm-*-gcc' 2>/dev/null | head -1)"
+    [[ -n "$CROSS" ]] || die "no ARM linux-gnueabihf cross toolchain under $SDK/prebuilts"
     CROSS_REL="${CROSS#"$SDK"/}"             # SDK-relative, valid in the container
     info "staging kernel modules (INSTALL_MOD_STRIP=1)"
     rm -rf "$SDK/.camerabox-modules"
@@ -330,6 +339,38 @@ EOF
     KVER="$(ls "$SDK/.camerabox-modules/lib/modules" 2>/dev/null | head -1)"
     [[ -n "$KVER" ]] || die "no modules staged under $SDK/.camerabox-modules"
     info "kernel release: $KVER"
+
+    # build the AIC8800 (USB) Wi-Fi driver — an EXTERNAL module, not in-tree.
+    # Its Makefile defaults are right for this board (USB=y, SDIO=n), but it
+    # uses $(PWD) for M=, so it MUST be built with the driver dir as the
+    # working directory — 'make -C' silently builds nothing.
+    AIC_DIR="external/rkwifibt/drivers/aic8800/aic8800"
+    [[ -d "$SDK/$AIC_DIR" ]] || die "aic8800 driver not found at \$SDK/$AIC_DIR"
+    info "building the aic8800 Wi-Fi modules"
+    sdk_run "SDKROOT=\$PWD; cd $AIC_DIR && \
+             make KDIR=\$SDKROOT/$KREL ARCH=arm CROSS_COMPILE=\$SDKROOT/${CROSS_REL%gcc}" \
+        || die "aic8800 build failed"
+    mkdir -p "$SDK/.camerabox-modules/lib/modules/$KVER/updates"
+    cp "$SDK/$AIC_DIR/aic_load_fw/aic_load_fw.ko" \
+       "$SDK/$AIC_DIR/aic8800_fdrv/aic8800_fdrv.ko" \
+       "$SDK/.camerabox-modules/lib/modules/$KVER/updates/" \
+        || die "aic8800 .ko files missing after the build"
+    info "aic8800_fdrv.ko + aic_load_fw.ko staged"
+
+    # build u-boot + idblock — the SD's own boot chain. The community base
+    # image carries NO loader (sector 64 is empty; it relied on a factory
+    # u-boot in SPI flash), so without this the image only boots on boards
+    # whose SPI still holds a loader.
+    UBOOT_IMG="$SDK/u-boot/uboot.img"
+    IDBLOCK="$(ls "$SDK"/u-boot/*idblock*.img 2>/dev/null | head -1)"
+    if [[ ! -f "$UBOOT_IMG" || -z "$IDBLOCK" ]]; then
+        info "building u-boot + idblock"
+        sdk_run './build.sh uboot' || die "u-boot build failed"
+        UBOOT_IMG="$SDK/u-boot/uboot.img"
+        IDBLOCK="$(ls "$SDK"/u-boot/*idblock*.img 2>/dev/null | head -1)"
+    fi
+    [[ -f "$UBOOT_IMG" && -n "$IDBLOCK" ]] || die "u-boot artifacts missing after the build (u-boot/uboot.img + *idblock*.img)"
+    info "u-boot: $UBOOT_IMG, idblock: $IDBLOCK"
 fi
 
 # =============================================================================
@@ -353,12 +394,15 @@ mkdir -p "$ROOTFS/tmp"; chmod 1777 "$ROOTFS/tmp"
 printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > "$ROOTFS/etc/resolv.conf"
 
 info "installing the camera-box requirements (emulated — slow)"
+# collapse the multi-line package lists to one line — an embedded newline
+# would split the apt command inside the heredoc
+PKGS_ALL="$(echo $PKGS_CORE $PKGS_DEBUG)"
 chroot "$ROOTFS" /bin/bash -e <<CHROOT
 export DEBIAN_FRONTEND=noninteractive
 APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none \
      -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef"
 \$APT update
-\$APT install -y --no-install-recommends $PKGS_CORE $PKGS_DEBUG
+\$APT install -y --no-install-recommends $PKGS_ALL
 \$APT install -y --no-install-recommends ustreamer \
     || echo ">> NOTE: 'ustreamer' not in apt for $SUITE — build it on the device (see docs/luckfox-lyra-zero-w.md)"
 \$APT clean
@@ -446,17 +490,30 @@ if [[ -z "$KEEP_BASE_KERNEL" ]]; then
 
     find "$ROOTFS/lib/modules/$KVER" -name 'uvcvideo.ko*' | grep -q . \
         || die "uvcvideo.ko missing from the module install — UVC didn't build; check the kernel config"
-    info "uvcvideo.ko present"
+    find "$ROOTFS/lib/modules/$KVER/updates" -name 'aic8800_fdrv.ko' | grep -q . \
+        || die "aic8800_fdrv.ko missing — without it there is no wlan0 and no hotspot"
+    info "uvcvideo.ko + aic8800 modules present"
 
-    if ! find "$ROOTFS/lib/modules/$KVER" -iname '*aic*' | grep -q .; then
-        warn "no aic8800 module in the kernel build output!"
-        warn "The Wi-Fi driver may be an external module in your SDK version."
-        warn "Find it (e.g. \$SDK/external/*aic*, or the wifi section of the SDK's"
-        warn "BoardConfig) and make sure it's built — WITHOUT it there is no wlan0"
-        warn "and no hotspot. Continuing anyway."
+    # Wi-Fi firmware: the SDK ships the blobs matching this driver, and the
+    # driver's built-in default path is /lib/firmware/aic8800DC.
+    if [[ -d "$SDK/external/rkwifibt/firmware/aicsemi/aic8800DC" ]]; then
+        mkdir -p "$ROOTFS/lib/firmware"
+        cp -a "$SDK/external/rkwifibt/firmware/aicsemi/aic8800DC" "$ROOTFS/lib/firmware/"
+        info "aic8800DC firmware installed from the SDK"
+    else
+        warn "no aic8800DC firmware in the SDK — relying on the base-image harvest"
     fi
-    # load uvcvideo at boot (belt & braces; udev would load it on hotplug too)
-    echo uvcvideo > "$ROOTFS/etc/modules-load.d/camera-box.conf"
+    # Load the whole USB + Wi-Fi + camera chain explicitly at boot: the USB
+    # controller (dwc2) and PHY are modules in the vendor kernel, and OF
+    # modalias autoload proved unreliable on the board (no USB bus at all
+    # until these were force-loaded).
+    cat > "$ROOTFS/etc/modules-load.d/camera-box.conf" <<'EOF'
+phy-rockchip-inno-usb2
+dwc2
+aic_load_fw
+aic8800_fdrv
+uvcvideo
+EOF
 fi
 
 # =============================================================================
@@ -536,6 +593,23 @@ if [[ -z "$KEEP_BASE_KERNEL" ]]; then
     [[ "$isz" -le "$bsz" ]] || die "boot.img ($isz bytes) doesn't fit the boot partition ($bsz bytes)"
     info "writing our UVC-enabled boot.img -> $BOOTP"
     dd if="$BOOT_IMG" of="$BOOTP" bs=4M conv=fsync status=none
+
+    # make the card SELF-BOOTING: idblock at sector 64 (raw, before the first
+    # partition at sector 8192) + the matching u-boot FIT into the 'uboot'
+    # partition. All three stages then come from the same SDK build.
+    UBOOTP=""
+    for p in "$LOOP"p*; do
+        [[ -b "$p" && "$p" != "$ROOTP" && "$p" != "$BOOTP" ]] || continue
+        [[ "$(lsblk -no PARTLABEL "$p" 2>/dev/null)" == uboot ]] && { UBOOTP="$p"; break; }
+    done
+    [[ -n "$UBOOTP" ]] || UBOOTP="${LOOP}p1"
+    usz="$(blockdev --getsize64 "$UBOOTP")"; isz="$(stat -c%s "$UBOOT_IMG")"
+    [[ "$isz" -le "$usz" ]] || die "uboot.img ($isz bytes) doesn't fit the uboot partition ($usz bytes)"
+    idsz="$(stat -c%s "$IDBLOCK")"
+    [[ "$idsz" -le $(( (8192 - 64) * 512 )) ]] || die "idblock ($idsz bytes) overlaps the first partition"
+    info "writing idblock (sector 64) + uboot.img -> $UBOOTP (self-booting card)"
+    dd if="$IDBLOCK" of="$LOOP" bs=512 seek=64 conv=notrunc,fsync status=none
+    dd if="$UBOOT_IMG" of="$UBOOTP" bs=4M conv=fsync status=none
 fi
 
 # replace the rootfs: fresh ext4 (same UUID — the boot cmdline may reference

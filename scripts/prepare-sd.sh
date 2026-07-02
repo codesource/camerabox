@@ -18,7 +18,7 @@
 #
 #   sudo bash scripts/prepare-sd.sh [--binary ./camera-box | --no-binary] [--image FILE|URL] \
 #                                   [--ssid NAME] [--pass SECRET] [--ip 192.168.4.1/24] \
-#                                   [--root-pass SECRET] [--grow]
+#                                   [--root-pass SECRET] [--no-grow]
 #
 # With no --binary it lists the release binaries and lets you pick one (or 's'
 # to skip). --no-binary provisions deps + config only, for a binary you add later.
@@ -48,7 +48,7 @@ ROOT_PASS="camerabox"   # headless: preset root login (SSH over the AP)
 BINARY=""
 IMAGE=""
 NOBIN=""
-GROW=""
+GROW=1   # grow the root partition to fill the card (--no-grow to disable)
 REPO="codesource/camerabox"
 MNT=""
 
@@ -98,7 +98,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --binary) BINARY="${2:-}"; shift 2 ;;
         --no-binary) NOBIN=1; shift ;;
-        --grow) GROW=1; shift ;;
+        --grow) GROW=1; shift ;;      # kept for back-compat (now the default)
+        --no-grow) GROW=""; shift ;;
         --image)  IMAGE="${2:-}";  shift 2 ;;
         --ssid)   AP_SSID="${2:-}"; shift 2 ;;
         --pass)   AP_PASS="${2:-}"; shift 2 ;;
@@ -146,7 +147,19 @@ read -rp "Type YES to continue: " ans
 # partition N of DEV (mmcblk0 -> p3, sdX -> 3)
 partof() { local d="$1" n="$2"; [[ "$d" == *[0-9] ]] && echo "${d}p${n}" || echo "${d}${n}"; }
 
+# Unmount every partition of the card the desktop may have auto-mounted.
+unmount_all() {
+    local p
+    for p in $(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{print $1}'); do
+        umount "$p" 2>/dev/null || true
+    done
+}
+
 # --- optional: flash a raw image first (local file OR http(s) URL) ----------
+# Unmount BEFORE writing: dd over a mounted filesystem lets its dirty page
+# cache scribble on the fresh image afterwards, and a mounted partition also
+# blocks the kernel from re-reading the new partition table.
+unmount_all
 if [[ -n "$IMAGE" ]]; then
     is_url=""; [[ "$IMAGE" =~ ^https?:// ]] && is_url=1
     [[ -n "$is_url" || -f "$IMAGE" ]] || die "image not found: $IMAGE"
@@ -170,23 +183,36 @@ if [[ -n "$IMAGE" ]]; then
     sync
 fi
 
-partprobe "$DEV" 2>/dev/null || true
-command -v udevadm >/dev/null && udevadm settle 2>/dev/null || true
-sleep 1
-
-# The desktop may have auto-mounted partitions of the card; unmount them, or
-# e2fsck/resize2fs refuse to touch a mounted filesystem.
-for p in $(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{print $1}'); do
-    umount "$p" 2>/dev/null || true
+# Make sure the kernel has adopted the CURRENT on-disk partition table. If a
+# partition was auto-mounted during the flash, partprobe fails silently and
+# every later step then runs against the STALE table (e.g. the previous
+# image's single huge partition) — wrong rootfs, wrong grow, corrupted card.
+# Verify kernel view == on-disk table, retrying with unmounts; never continue
+# on a mismatch.
+reread_ok=""
+for _i in 1 2 3 4 5; do
+    unmount_all
+    partprobe "$DEV" 2>/dev/null || blockdev --rereadpt "$DEV" 2>/dev/null || true
+    command -v udevadm >/dev/null && udevadm settle 2>/dev/null || true
+    sleep 1
+    ondisk="$(partx -g "$DEV" 2>/dev/null | wc -l)"
+    kernel="$(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"' | wc -l)"
+    [[ "$ondisk" -gt 0 && "$ondisk" -eq "$kernel" ]] && { reread_ok=1; break; }
 done
+[[ -n "$reread_ok" ]] || die "the kernel still sees a stale partition table on $DEV (kernel: $kernel partitions, on-disk: $ondisk). Something is holding the card busy — close file managers, unplug and replug the card reader, then re-run this script."
 
 # Find the root filesystem partition. Layouts differ per image (the Luckfox
 # Ubuntu image and our minimal image use partition 3; others differ), so probe
 # each ext*/btrfs/f2fs partition for a Linux root instead of assuming a number.
 find_rootfs() {
-    local p type lbl tmp cand=()
-    # collect all Linux-filesystem partitions on the card
+    local p type lbl tmp sz cand=()
+    # collect all Linux-filesystem partitions on the card — a real rootfs is
+    # at least 64M (small uboot/boot partitions can also carry an ext
+    # signature and must never win)
     for p in $(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{print $1}'); do
+        sz="$(lsblk -bno SIZE "$p" 2>/dev/null | head -1)"
+        [[ "${sz:-0}" -ge 67108864 ]] || continue
+        umount "$p" 2>/dev/null || true   # the desktop may auto-mount it
         type="$(blkid -o value -s TYPE "$p" 2>/dev/null || true)"
         [[ -n "$type" ]] || type="$(lsblk -no FSTYPE "$p" 2>/dev/null || true)"
         case "$type" in ext2|ext3|ext4|btrfs|f2fs) cand+=("$p") ;; esac
@@ -219,7 +245,16 @@ find_rootfs() {
     [[ -n "$best" ]] && { echo "$best"; return 0; }
     return 1
 }
-if ! ROOTP="$(find_rootfs)"; then
+# Right after dd + partprobe the kernel/blkid can lag behind the new partition
+# table (and picking the wrong partition then cascades) — retry a few times.
+ROOTP=""
+for _try in 1 2 3; do
+    ROOTP="$(find_rootfs)" && [[ -n "$ROOTP" ]] && break
+    sleep 2
+    partprobe "$DEV" 2>/dev/null || true
+    command -v udevadm >/dev/null && udevadm settle 2>/dev/null || true
+done
+if [[ -z "$ROOTP" ]]; then
     echo "Partitions on $DEV:" >&2
     lsblk -po NAME,SIZE,FSTYPE,LABEL "$DEV" >&2 || true
     die "couldn't find a Linux root filesystem on $DEV. If one of the partitions above is your rootfs, paste this output — its filesystem may be unrecognised or too dirty to probe."
@@ -228,19 +263,20 @@ ROOTNUM="${ROOTP##*[!0-9]}"
 umount "$ROOTP" 2>/dev/null || true   # the desktop may have auto-mounted it
 info "root filesystem: $ROOTP"
 
-# --- grow the rootfs (opt-in) ------------------------------------------------
-# Off by default: many images (Raspberry Pi OS, ...) auto-expand the rootfs on
-# first boot, and rewriting the partition table here can disturb the board's
-# boot layout (Rockchip u-boot lives just before the first partition).
-# Pass --grow only for images that ship a full, non-resizing rootfs.
+# --- grow the root partition to fill the card (default; --no-grow disables) --
+# The camera-box minimal image ships a fixed-size rootfs and nothing on the
+# device auto-expands it, so growing here is the default. It always targets
+# the partition that CONTAINS the root filesystem ($ROOTP, found above).
 lastpart="$(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{n=$1} END{print n}')"
 if [[ -z "$GROW" ]]; then
-    info "not resizing the card (most images auto-expand on first boot; use --grow to force)"
+    info "not resizing the card (--no-grow)"
 elif [[ "$ROOTP" != "$lastpart" ]]; then
-    warn "rootfs $ROOTP is not the last partition — skipping --grow"
+    warn "root partition $ROOTP is not the last partition — cannot grow it, skipping"
 else
-    info "growing rootfs $ROOTP to fill the card"
+    info "growing root partition $ROOTP to fill the card"
     if command -v sgdisk >/dev/null 2>&1; then
+        # a small image dd'd onto a bigger card strands GPT's backup header
+        # mid-disk; move it to the end first
         sgdisk -e "$DEV" >/dev/null 2>&1 || true
         partprobe "$DEV" 2>/dev/null || true; sleep 1
     fi
@@ -252,6 +288,7 @@ else
         warn "could not grow $ROOTP — install 'cloud-guest-utils' (growpart) or 'gdisk'."
     fi
     partprobe "$DEV" 2>/dev/null || true; sleep 1
+    umount "$ROOTP" 2>/dev/null || true   # the desktop may have re-auto-mounted it
     e2fsck -fy "$ROOTP" || true
     resize2fs "$ROOTP" || warn "resize2fs failed (apt may run out of space)"
 fi
@@ -384,7 +421,9 @@ Wants=sys-subsystem-net-devices-wlan0.device
 
 [Service]
 Type=oneshot
-ExecStartPre=-/usr/sbin/rfkill unblock wifi
+# 'all', not 'wifi': on combo chips (Lyra's AIC8800DC) the BLUETOOTH rfkill
+# drives the chip's power GPIO — blocked BT = unpowered chip = no wlan0.
+ExecStartPre=-/usr/sbin/rfkill unblock all
 ExecStart=/sbin/ip addr flush dev wlan0
 ExecStart=/sbin/ip addr add $AP_IP dev wlan0
 ExecStart=/sbin/ip link set wlan0 up
@@ -431,12 +470,44 @@ password = "$AP_PASS"
 ip_cidr = "$AP_IP"
 EOF
 
+# The USB Wi-Fi enumerates late (module load -> chip power -> firmware
+# download) — when wlan0 finally appears, (re)start the AP chain. This beats
+# any boot-order race between hostapd and the driver.
+mkdir -p "$MNT/etc/udev/rules.d"
+cat > "$MNT/etc/udev/rules.d/90-camera-box-wlan0.rules" <<'EOF'
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="camera-box-ip.service hostapd.service dnsmasq.service"
+EOF
+
+# ...and if hostapd loses a race anyway, retry instead of staying dead.
+mkdir -p "$MNT/etc/systemd/system/hostapd.service.d"
+printf '[Service]\nRestart=on-failure\nRestartSec=3\n' \
+    > "$MNT/etc/systemd/system/hostapd.service.d/camera-box.conf"
+
+# Preseed the saved rfkill state as UNBLOCKED. On combo chips (the Lyra's
+# AIC8800DC) the bluetooth rfkill drives the chip's power GPIO; the driver
+# registers it blocked, systemd-rfkill saves that on first boot and then
+# restores "blocked" forever — the chip never powers onto the USB bus.
+mkdir -p "$MNT/var/lib/systemd/rfkill"
+echo 0 > "$MNT/var/lib/systemd/rfkill/platform-wireless-bluetooth:bluetooth"
+
 # If the image uses NetworkManager, stop it fighting over wlan0.
 if [[ -d "$MNT/etc/NetworkManager" ]]; then
     mkdir -p "$MNT/etc/NetworkManager/conf.d"
     printf '[keyfile]\nunmanaged-devices=interface-name:wlan0\n' \
         > "$MNT/etc/NetworkManager/conf.d/camera-box.conf"
 fi
+
+# Keep the kernel's interface name: systemd's default naming policy renames
+# USB Wi-Fi to wlx<MAC> the moment it appears, and every wlan0-based config
+# (hostapd, dnsmasq, camera-box-ip, the udev rule) then misses it.
+mkdir -p "$MNT/etc/systemd/network"
+cat > "$MNT/etc/systemd/network/50-camera-box-wlan0.link" <<'EOF'
+[Match]
+OriginalName=wlan*
+
+[Link]
+NamePolicy=kernel
+EOF
 
 # Same for systemd-networkd (netplan/networkd images): a "dhcp on all
 # interfaces" netplan profile would claim wlan0 and strip the AP's static IP
