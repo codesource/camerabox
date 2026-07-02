@@ -12,6 +12,14 @@ which is byte-identical to `camera-box-pi-zero-2w-armv7`). No special build.
 2. It's a Rockchip board, so flashing isn't quite "just `dd` the official image".
    Use a community **`dd`-able Ubuntu image** (below).
 
+> **Recommended: build our own minimal image.** The community images' kernels
+> lack UVC (no `/dev/video0`, ever) — so the supported route is to **build the
+> camera-box minimal image once** (UVC kernel from the vendor SDK + a minimal
+> Debian rootfs) and deploy it per card with `prepare-sd.sh`. See
+> [minimal-lyra-image.md](minimal-lyra-image.md). The routes below use the
+> plain community Ubuntu image instead — they give you the hotspot + dashboard
+> quickly, but **USB cameras won't work** on that stock kernel.
+
 There are two ways to set the card up. The **automated** route is one command;
 the **manual** route is the same steps spelled out, for understanding or if the
 script hits a snag on your image. Both are done entirely from your Linux PC, and
@@ -116,7 +124,7 @@ sudo mount --bind /dev  /mnt/lyra/dev
 sudo mount -t devpts devpts /mnt/lyra/dev/pts
 sudo mount --bind /proc /mnt/lyra/proc
 sudo mount --bind /sys  /mnt/lyra/sys
-# working DNS for the chroot (Debian/Armbian's systemd-resolved stub +
+# working DNS for the chroot (the image's systemd-resolved stub +
 # nss-resolve don't work under qemu — apt would fail with getaddrinfo EBUSY)
 sudo rm -f /mnt/lyra/etc/resolv.conf
 echo 'nameserver 1.1.1.1' | sudo tee /mnt/lyra/etc/resolv.conf >/dev/null
@@ -291,8 +299,7 @@ iw dev                                         # wlan0 present, type AP
   while connecting the USB-C data port), then `rkdeveloptool db MiniLoaderAll.bin`
   (loader from the Luckfox SDK) and `rkdeveloptool ef` (erase flash), or use
   RKDevTool → *Advanced → Erase All* on Windows. After erasing, the board boots
-  from the SD card (and USB host works). See the Armbian forum thread for the
-  Lyra Zero W and the Luckfox image-flashing wiki.
+  from the SD card (and USB host works). See the Luckfox image-flashing wiki.
 - **No hotspot appears.** Check `journalctl -u hostapd -b`. The AIC8800 Wi-Fi
   driver is out-of-tree; if hostapd won't start in AP mode, confirm the driver
   is loaded (`iw dev`, `dmesg | grep -i aic`) and that the Luckfox image includes
@@ -339,9 +346,10 @@ iw dev                                         # wlan0 present, type AP
 
      If `CONFIG_USB_VIDEO_CLASS` is unset and no modules are found, **you cannot
      load it** — the driver was never compiled. `modprobe` can't fix a missing
-     driver. The only fix is a kernel with UVC enabled; build one and put it in
-     your image as described in
-     [Building an RK3506 Ubuntu image with UVC](rk3506-ubuntu-uvc-image.md).
+     driver. The only fix is a kernel with UVC enabled: build the camera-box
+     **minimal image** (automated — [minimal-lyra-image.md](minimal-lyra-image.md))
+     or follow the manual kernel guide
+     ([rk3506-ubuntu-uvc-image.md](rk3506-ubuntu-uvc-image.md)).
      Everything else (hotspot, dashboard) works on the stock kernel; **only USB
      cameras** need the rebuilt kernel.
 

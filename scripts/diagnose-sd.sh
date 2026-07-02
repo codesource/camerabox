@@ -33,7 +33,6 @@ hdr()  { echo; echo "== $* =="; }
 
 hdr "OS"
 [[ -f "$R/etc/os-release" ]] && grep -E '^(PRETTY_NAME|VERSION_CODENAME)=' "$R/etc/os-release" | sed 's/^/  /'
-[[ -f "$R/etc/armbian-release" ]] && grep -E '^(BOARD|VERSION|BRANCH|LINUXFAMILY)=' "$R/etc/armbian-release" | sed 's/^/  /'
 
 hdr "camera-box binary"
 if [[ -x "$R/usr/local/bin/camera-box" ]]; then
@@ -70,14 +69,15 @@ if [[ -L "$R/etc/systemd/system/hostapd.service" ]]; then
 fi
 
 hdr "headless / remote access"
-[[ -e "$R/root/.not_logged_in_yet" ]] \
-    && bad "Armbian first-run wizard still armed (/root/.not_logged_in_yet) — a console-less boot can block login" \
-    || ok "first-run wizard flag cleared"
 if [[ -r "$R/etc/shadow" ]]; then
     grep -q '^root:[$]' "$R/etc/shadow" && ok "root password is set" || bad "root has NO password (SSH login will fail)"
 else note "can't read /etc/shadow (run with sudo)"; fi
 [[ -f "$R/etc/NetworkManager/conf.d/camera-box.conf" ]] && ok "NetworkManager told to ignore wlan0" \
     || note "no NM unmanaged-wlan0 rule (fine if the image doesn't use NetworkManager)"
+[[ -f "$R/etc/systemd/network/05-wlan0-unmanaged.network" ]] && ok "systemd-networkd told to ignore wlan0" \
+    || note "no networkd unmanaged-wlan0 rule (needed on netplan/networkd images — re-run prepare-sd.sh)"
+[[ -f "$R/etc/camerabox-minimal-release" ]] \
+    && { ok "camera-box minimal image"; sed 's/^/       /' "$R/etc/camerabox-minimal-release"; }
 
 hdr "kernel modules (camera + wifi)"
 km="$(ls -d "$R"/lib/modules/*/ 2>/dev/null | head -1)"
@@ -98,7 +98,7 @@ if [[ -d "$R/var/log/journal" ]] && command -v journalctl >/dev/null 2>&1; then
         | grep -iE 'hostapd|wlan0|aic|dnsmasq|camera-box' | tail -30 | sed 's/^/       /' \
         || note "no matching journal entries"
 else
-    note "no persisted journal (Armbian usually logs to RAM) — for hostapd errors you"
+    note "no persisted journal (many images log to RAM) — for hostapd errors you"
     note "need the booted device: 'journalctl -u hostapd -b' over serial/SSH"
 fi
 

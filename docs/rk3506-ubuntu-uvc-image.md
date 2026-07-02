@@ -1,141 +1,159 @@
-# Building an RK3506 Ubuntu image with UVC (USB camera) support
+# Building the RK3506 kernel with UVC (USB camera) support — the SDK, isolated in Docker
+
+> **Automated alternative (recommended):** the camera-box **minimal image**
+> script drives this exact SDK — including the Docker isolation below — and
+> assembles the final image in one go: see
+> [minimal-lyra-image.md](minimal-lyra-image.md). This page documents the SDK
+> itself: the one-time setup, why it must run in Docker, the UVC kernel
+> change, and (optionally) the SDK's own full-Ubuntu image build.
 
 Stock Luckfox RK3506 images (including the community Ubuntu ones) ship a kernel
 built **without** USB Video Class support — these minimal images strip the whole
 V4L2 / media subsystem. The symptom: a USB webcam shows up in `lsusb` but there
 is no `/dev/video0`, and `modprobe uvcvideo` fails with
 `Module uvcvideo not found`. Since the driver was never compiled, nothing on the
-running system can fix it — you have to **rebuild the kernel** with UVC enabled
-and put it in your image.
+running system can fix it — you have to **rebuild the kernel** with UVC enabled.
 
-This guide builds a full **Ubuntu (systemd)** image for the Luckfox Lyra Zero W
-with a UVC-enabled kernel, so camera-box can then use USB cameras. Everything
-else (Wi-Fi hotspot, dashboard) already works on the stock kernel — only USB
-cameras need this.
+The kernel source is the
+[markbirss/rk3506-ubuntu](https://github.com/markbirss/rk3506-ubuntu) repo,
+branch **`luckfox-bpi`** — the repo **is** the full vendor SDK (top-level
+`kernel-6.1/`, `u-boot/`, `device/rockchip/`, a prebuilt ARM toolchain under
+`prebuilts/`, and the `build.sh` driver script).
 
-> This is real, one-time build work on a Linux PC (an hour or few, plus disk).
-> If you don't specifically need the Lyra, a Raspberry Pi Zero 2 W (the same
-> ARMv7 target) runs UVC cameras out of the box with no kernel work.
+## ⚠️ Do NOT set the SDK up natively on a modern Linux
 
-## What you need
-
-- An **x86-64 Linux build host** (Ubuntu 22.04 recommended).
-- **~50 GB** free disk and a few hours.
-- Build dependencies:
-
-  ```sh
-  sudo apt-get update && sudo apt-get install -y \
-    git ssh make gcc g++ libssl-dev liblz4-tool expect expect-dev patchelf \
-    chrpath gawk texinfo diffstat binfmt-support qemu-user-static live-build \
-    bison flex fakeroot cmake gcc-multilib g++-multilib unzip \
-    device-tree-compiler libncurses-dev bzip2 expat gpgv2 cpp-aarch64-linux-gnu \
-    libgmp-dev libmpc-dev bc python-is-python3 curl file rsync bsdmainutils scons
-  ```
-
-## 1. Get the image builder / SDK
-
-The community RK3506 **Ubuntu** image builder wraps the Luckfox SDK (kernel +
-U-Boot) with an Ubuntu root filesystem:
+The SDK's own README targets **Ubuntu 22.04** and requires **`python2`** plus:
 
 ```sh
-git clone -b luckfox-bpi https://github.com/markbirss/rk3506-ubuntu
+sudo ln -sf /usr/bin/python2 /usr/bin/python   # from the SDK README — do NOT run this on your host
+```
+
+That symlink hijacks `python` for your whole system, and `python2` doesn't even
+exist in the repositories of current distros (Debian 12+/Ubuntu 24.04+). So the
+SDK build must be **isolated**. The repo ships its own Dockerfile
+(`rk3506-ubuntu.dockerfile`: Ubuntu 22.04 + python2 + all build deps, with the
+python symlink contained inside the image) — use that. Everything below runs
+SDK commands inside that container; your host only needs `git` and `docker`.
+
+## 1. One-time setup
+
+### Get the SDK (~a few GB)
+
+```sh
+git clone -b luckfox-bpi https://github.com/markbirss/rk3506-ubuntu.git
 cd rk3506-ubuntu
+
+# select the rk3506 chip (from the SDK README, verbatim):
+cd device/rockchip/.chips/rk3506
+ln -s .chips/rk3506 ../../rk3506
+ln -s .chips/rk3506 ../../.chip
+cd ../../../../
 ```
 
-Follow that repo's **README** to bootstrap (it fetches the Luckfox Lyra SDK and
-the Ubuntu rootfs artifacts). Exact bootstrap/build script names change between
-versions — the repo README is the source of truth. The steps below are the
-Luckfox SDK build flow the builder drives; the one part that matters and is
-stable across versions is the **kernel config change in step 3**.
-
-> If you only wanted Buildroot you could use the Luckfox SDK directly
-> (`luckfox-lyra-*.tar.gz` → `.repo/repo/repo sync -l`), but camera-box needs
-> systemd, so build the **Ubuntu** image.
-
-## 2. Select the board
+### Build the container image (one-time)
 
 ```sh
-./build.sh lunch
-# choose "Luckfox Lyra Zero W", then SD_CARD
+docker build --rm -f rk3506-ubuntu.dockerfile -t lyra:rk3506-ubuntu-build .
 ```
 
-## 3. Enable UVC in the kernel — the essential change
-
-Open the kernel menuconfig:
+The image's entrypoint is an interactive bash (shell-form `ENTRYPOINT`), so
+one-off commands must go through `--entrypoint`. A helper you'll reuse:
 
 ```sh
-./build.sh kernel-config
+# interactive shell in the build environment (SDK mounted at /build):
+docker run --rm -it -v "$PWD":/build -w /build lyra:rk3506-ubuntu-build
+
+# run one command in it:
+sdk() { docker run --rm -it -v "$PWD":/build -w /build \
+        --entrypoint /bin/bash lyra:rk3506-ubuntu-build -c "$*"; }
 ```
 
-In menuconfig: press `/`, search `USB_VIDEO_CLASS`, jump to it, and enable
-**"USB Video Class (UVC)"** as a module (`M`). menuconfig auto-selects the
-dependencies (Multimedia support, Media USB adapters, V4L2 core). Then `Save`
-and exit.
+### Select the board (one-time, interactive)
 
-The options that must end up set (verify in the resulting `.config`):
+```sh
+sdk './build.sh lunch'     # choose the Luckfox Lyra Zero W board config
+```
 
-```text
+## 2. Enable UVC in the kernel — the essential change
+
+Two equivalent ways; the **defconfig fragment** survives clean rebuilds and is
+what the automated script does:
+
+```sh
+# find the board defconfig the build uses:
+ls kernel-6.1/arch/arm/configs | grep -iE 'rk3506|lyra'
+
+cat >> kernel-6.1/arch/arm/configs/<board>_defconfig <<'EOF'
+
+# camera-box: UVC (USB webcam) support — do not remove
 CONFIG_MEDIA_SUPPORT=y
 CONFIG_MEDIA_USB_SUPPORT=y
 CONFIG_MEDIA_CAMERA_SUPPORT=y
-CONFIG_VIDEO_DEV=y          # V4L2 core (videodev)
-CONFIG_USB_VIDEO_CLASS=m    # the uvcvideo driver
+CONFIG_VIDEO_DEV=y
+CONFIG_USB_VIDEO_CLASS=m
+EOF
+rm -f kernel-6.1/.config      # a stale .config would shadow the change
 ```
 
-To make the change permanent (survive a `make …_defconfig`), also add those
-lines to the board's kernel defconfig under the SDK's kernel tree — for 32-bit
-ARM that's `arch/arm/configs/<board>_defconfig` (grep the kernel dir for the
-defconfig the build actually uses).
+Or interactively (inside the container): `sdk './build.sh kernel-config'` /
+menuconfig → `/` → search `USB_VIDEO_CLASS` → `M` → save. Either way, verify
+after the build that `kernel-6.1/.config` contains `CONFIG_USB_VIDEO_CLASS=m`.
 
-Keeping `USB_VIDEO_CLASS=m` (a module) is fine and preferred — it loads on
-plug-in; to force it at boot, add `uvcvideo` to `/etc/modules-load.d/` in the
-rootfs.
-
-## 4. Build
+## 3. Build the kernel (all you need for camera-box)
 
 ```sh
-./build.sh kernel      # builds the kernel + uvcvideo.ko
-./build.sh rootfs      # Ubuntu rootfs (per the builder)
-./build.sh firmware    # packages the flashable image
+sdk './build.sh kernel'
 ```
 
-Outputs land in `rockdev/` (e.g. `boot.img`, `rootfs.img`, and a combined
-`update.img`), plus whatever SD image the Ubuntu builder emits.
-
-## 5. Flash
-
-- If the builder produced a raw **`.img`** (dd-able) SD image, write it like any
-  other: `sudo dd if=<image>.img of=/dev/sdX bs=4M status=progress conv=fsync`.
-- Otherwise use the SDK's flashing path (`rkflash.sh` / `rkdeveloptool`, or
-  `update.img` via RKDevTool on Windows).
-
-## 6. Verify UVC, then provision camera-box
-
-Boot the board, plug in the USB camera, and:
+This produces the Rockchip **`boot.img`** (kernel + dtb packed; look in
+`kernel-6.1/`, `output/`, or `rockdev/` depending on SDK version) and the
+modules tree. To stage the modules for a rootfs (what the automated script
+does):
 
 ```sh
-lsmod | grep uvc || sudo modprobe uvcvideo
-ls -l /dev/video*                 # /dev/video0 should now exist
-v4l2-ctl --list-devices           # (sudo apt install v4l-utils)
+sdk 'make -C kernel-6.1 ARCH=arm \
+     CROSS_COMPILE=$PWD/prebuilts/gcc/linux-x86/arm/*/bin/arm-*- \
+     INSTALL_MOD_PATH=$PWD/.camerabox-modules INSTALL_MOD_STRIP=1 modules_install'
 ```
 
-Once `/dev/video0` is there, provision camera-box normally — either on the
-device (`curl … install.sh | sudo bash -s -- luckfox-lyra-zero-w`) or from your
-PC against your freshly built image:
+**That's the hand-off point**: give the `boot.img` + modules to
+[`scripts/build-minimal-image-luckfox-lyra-zero-w.sh`](../scripts/build-minimal-image-luckfox-lyra-zero-w.sh)
+(it runs steps 2–3 itself when you point it at the SDK with `--sdk`), which
+assembles the camera-box minimal image; then deploy cards with
+`prepare-sd.sh`. You're done — the rest of this page is optional.
+
+## 4. Optional: the SDK's own full-Ubuntu image
+
+Only if you want the SDK's complete Ubuntu image instead of the camera-box
+minimal rootfs. It additionally needs the Ubuntu rootfs tarball (note:
+extracting it needs `7z` — `p7zip-full`, which the SDK README's dependency
+list omits):
 
 ```sh
-sudo bash prepare-sd.sh --image <your-built-image>.img
+git clone https://github.com/markbirss/ubuntu_24.04.3.git
+cd ubuntu_24.04.3
+7z x ubuntu_24.04.3.7z.001
+sha256sum ubuntu_24.04.3.tar.gz
+mv ubuntu_24.04.3.tar.gz ../
+cd .. && rm -rf ubuntu_24.04.3
+mkdir -p ubuntu && mv ubuntu_24.04.3.tar.gz ubuntu/
+
+sdk './build.sh'            # full build (u-boot + kernel + rootfs + firmware)
 ```
 
-See [luckfox-lyra-zero-w.md](luckfox-lyra-zero-w.md) for the full provisioning
-flow.
+Outputs land under `output/`/`rockdev/` (`boot.img`, `rootfs.img`,
+`update.img`). Flashing: `./rkflash.sh update` flashes over **USB** (MASKROM /
+`rkdeveloptool`) — that path needs the board attached to the build host; for an
+SD card, dd-able assembly from the parts is exactly what the minimal-image
+script automates, so prefer that.
 
 ## Notes
 
-- **Command names vary by SDK/builder version.** Trust the repo README for the
-  exact `./build.sh …` invocations; the durable, portable part of this guide is
-  the kernel config in step 3.
-- If you'd rather not build this yourself, the low-effort alternatives are to
-  **ask the image maintainer** to add `CONFIG_USB_VIDEO_CLASS=m` (a tiny
-  defconfig change) or to use a board that ships UVC (the Pi Zero 2 W runs the
-  same camera-box binary).
+- **Never install the SDK deps on the host.** Anything that fails outside the
+  container (python2, old make/gcc assumptions) is expected — rerun it inside.
+- SDK layouts drift between versions: `build.sh` sub-commands and the
+  `boot.img` output path are the two things to re-check after pulling. The
+  durable part of this guide is the **UVC config block in step 2**.
+- If you'd rather not build at all, the low-effort alternative remains a board
+  that ships UVC (a Pi Zero 2 W runs the same camera-box binary out of the
+  box).

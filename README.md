@@ -29,8 +29,9 @@ processes, networking, and the UI/API.
 ## Target platform
 
 - Raspberry Pi Zero W v1.1 (armv6) or Pi Zero 2 W (armv7/aarch64)
-- Also runs on the Luckfox Lyra Zero W (Rockchip RK3506B, ARMv7) on its
-  **Ubuntu image** — see the install table below
+- Also runs on the Luckfox Lyra Zero W (Rockchip RK3506B, ARMv7) on the
+  **camera-box minimal image** you build once —
+  [docs/minimal-lyra-image.md](docs/minimal-lyra-image.md)
 - Raspberry Pi OS Lite / Raspbian (tested on trixie), **Linux only**
 - Runs as a `systemd` service, as root
 - Wi-Fi AP via `hostapd` + `dnsmasq`; default AP IP `192.168.4.1`
@@ -73,9 +74,10 @@ curl -fsSL https://raw.githubusercontent.com/codesource/camerabox/main/scripts/i
 
 > **Luckfox Lyra Zero W** (Rockchip RK3506B, triple Cortex-A7) is 32-bit ARMv7,
 > so it runs the same static binary as the Pi Zero 2 W (32-bit). Use the
-> **Ubuntu image** (it has `systemd`; the Buildroot/BusyBox image does not, which
-> camera-box requires). On first run, confirm `ustreamer` installed, a USB
-> camera shows up as `/dev/video0`, and the AIC8800 Wi-Fi starts the hotspot.
+> **camera-box minimal image** ([docs/minimal-lyra-image.md](docs/minimal-lyra-image.md)):
+> the prebuilt images' kernels lack UVC, so USB cameras never appear on them —
+> the minimal image bakes in a UVC-enabled kernel plus every dependency, and
+> `prepare-sd.sh` below deploys it per card.
 
 ### Prepare an SD card from your PC (offline first boot)
 
@@ -108,14 +110,15 @@ password). For a Raspberry Pi the plain [Install](#install-recommended) one-line
 is simpler — this offline route is for boards (like the Lyra) you want fully
 provisioned before first boot.
 
-> Full walkthrough — flashing the Ubuntu image, the automated route, **and** the
-> equivalent manual steps — is in
-> [docs/luckfox-lyra-zero-w.md](docs/luckfox-lyra-zero-w.md). USB cameras need a
-> UVC-enabled kernel, which the stock image lacks. The **recommended** way to get
-> a ready-to-run image (UVC kernel + camera-box + hotspot baked in, boots as an
-> AP) is to build a custom **Armbian** image —
-> [docs/armbian-lyra-image.md](docs/armbian-lyra-image.md); the from-SDK Ubuntu
-> route is in [docs/rk3506-ubuntu-uvc-image.md](docs/rk3506-ubuntu-uvc-image.md).
+> For the Lyra the flow is a **build/deploy split**: build the camera-box
+> **minimal image** once with
+> [`scripts/build-minimal-image-luckfox-lyra-zero-w.sh`](scripts/build-minimal-image-luckfox-lyra-zero-w.sh)
+> (UVC kernel from the vendor SDK, built in Docker + minimal Debian rootfs —
+> [docs/minimal-lyra-image.md](docs/minimal-lyra-image.md)), then deploy every
+> card with `prepare-sd.sh --image <built.img>` as above. The full board
+> walkthrough (flashing, SPI erase, manual steps, troubleshooting) is in
+> [docs/luckfox-lyra-zero-w.md](docs/luckfox-lyra-zero-w.md); the manual kernel
+> guide is [docs/rk3506-ubuntu-uvc-image.md](docs/rk3506-ubuntu-uvc-image.md).
 
 The installer downloads the right binary, installs the dependencies above, sets
 up and starts the `systemd` service, and writes a default config (it never

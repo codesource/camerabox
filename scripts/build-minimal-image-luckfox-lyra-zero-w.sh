@@ -1,0 +1,572 @@
+#!/usr/bin/env bash
+#
+# build-minimal-image-luckfox-lyra-zero-w.sh — BUILD a minimal, dd-able OS image
+# for the Luckfox Lyra Zero W (RK3506B) with everything camera-box needs baked
+# in. It only BUILDS; deploying a card stays with scripts/prepare-sd.sh, so the
+# flow is:
+#
+#   1. build the image ONCE:      sudo bash scripts/build-minimal-image-luckfox-lyra-zero-w.sh
+#   2. deploy each SD card:       sudo bash scripts/prepare-sd.sh --image <built.img> ...
+#
+# prepare-sd.sh remains the single install/configuration layer (camera-box
+# binary, hotspot SSID/password/IP, root password); this image is generic.
+#
+# Why this exists: the prebuilt images for this board ship the vendor 6.1
+# kernel with the whole media/V4L2 subsystem compiled out (CONFIG_MEDIA_SUPPORT
+# unset) — so USB cameras never get /dev/video0. And their general-purpose
+# rootfses (netplan/networkd/cloud tooling) fight camera-box for wlan0. This
+# builds both halves right — camera-box owns its own image:
+#
+#   KERNEL — built from the rk3506-ubuntu SDK (markbirss/rk3506-ubuntu, branch
+#            luckfox-bpi — the vendor Luckfox/Rockchip tree the proven
+#            community image uses, so AIC8800 Wi-Fi keeps working), with UVC
+#            enabled (CONFIG_USB_VIDEO_CLASS=m + V4L2 deps). The SDK build
+#            runs INSIDE DOCKER (the image its own rk3506-ubuntu.dockerfile
+#            defines): the SDK needs Ubuntu 22.04 + python2 + a global
+#            `python` -> python2 symlink, which must never touch your host.
+#            Pass --native to run it on the host anyway (at your own risk).
+#   ROOTFS — a debootstrap'd Debian *minbase* with ONLY the camera-box
+#            requirements: systemd, sshd, hostapd, dnsmasq, iw, wpa_supplicant,
+#            dhclient, avahi, rfkill, ustreamer (+ tiny debug helpers:
+#            usbutils, v4l-utils). No netplan, no NetworkManager, no cloud-init.
+#   BOOT   — bootloader + partition table taken VERBATIM from a known-good
+#            dd-able base image (e.g. Luckfox_Lyra_Zero_W-2503_Ubuntu), whose
+#            boot chain is proven on this board; only the kernel (boot
+#            partition) and the rootfs are replaced. The AIC8800 firmware blobs
+#            are harvested from that base image too.
+#
+# Run on an x86-64 Linux PC, as root. It is INTERACTIVE: missing inputs are
+# prompted for, and it checks free disk space in the chosen folders before
+# starting. One-time SDK setup (see docs/rk3506-ubuntu-uvc-image.md):
+#
+#   git clone -b luckfox-bpi https://github.com/markbirss/rk3506-ubuntu.git
+#   cd rk3506-ubuntu/device/rockchip/.chips/rk3506
+#   ln -s .chips/rk3506 ../../rk3506 && ln -s .chips/rk3506 ../../.chip
+#   cd ../../../../
+#   docker build --rm -f rk3506-ubuntu.dockerfile -t lyra:rk3506-ubuntu-build .
+#   docker run --rm -it -v $PWD:/build -w /build --entrypoint /bin/bash \
+#       lyra:rk3506-ubuntu-build -c './build.sh lunch'    # pick the Lyra Zero W
+#
+# (This script builds the docker image itself if it's missing, and dies with
+# these instructions if the SDK isn't bootstrapped/lunched yet. The Ubuntu
+# rootfs download from the SDK README is NOT needed — only the kernel is
+# built here; the rootfs comes from debootstrap.)
+#
+#   sudo bash scripts/build-minimal-image-luckfox-lyra-zero-w.sh \
+#       [--sdk ~/rk3506-ubuntu] \
+#       [--base-image ./Luckfox_Lyra_Zero_W-2503_Ubuntu.img.bz2] \
+#       [--suite trixie] [--mirror URL] [--out FILE.img] [--work DIR] \
+#       [--skip-kernel]        # reuse the SDK's existing kernel build output
+#       [--keep-base-kernel]   # don't touch the kernel: swap ONLY the rootfs
+#                              # (keeps the base image's modules/firmware; no
+#                              # UVC — for validating the minimal rootfs
+#                              # against the proven stock kernel first)
+#       [--native]             # run SDK commands on the host instead of docker
+#                              # (needs Ubuntu 22.04 + python2 — NOT recommended)
+#       [--yes]                # non-interactive: no prompts, fail if unsure
+#
+# The image boots inert-but-reachable if flashed as-is (ssh root/camerabox, no
+# hotspot); prepare-sd.sh is what installs camera-box and arms the hotspot.
+#
+# Requires: debootstrap qemu-user-static binfmt-support parted e2fsprogs rsync
+# curl bzip2 xz-utils file. On Debian/Ubuntu:
+#   sudo apt install debootstrap qemu-user-static binfmt-support parted \
+#                    e2fsprogs rsync curl bzip2 xz-utils file
+#
+# First kernel build takes a while (20-60 min); debootstrap under qemu ~10-20
+# min. Flashing + the one-time SPI erase are covered by prepare-sd.sh and
+# docs/luckfox-lyra-zero-w.md.
+#
+# NOTE: written against the documented SDK/base-image layouts; not yet verified
+# end-to-end on Lyra hardware. It fails loudly at each step it can't verify.
+set -euo pipefail
+
+# --- defaults ----------------------------------------------------------------
+SDK=""
+BASE_IMAGE=""
+SUITE="trixie"
+MIRROR="http://deb.debian.org/debian"
+OUT=""
+WORK=""
+SKIP_KERNEL=""
+KEEP_BASE_KERNEL=""
+NATIVE=""
+ASSUME_YES=""
+DEFAULT_ROOT_PASS="camerabox"   # image fallback; prepare-sd.sh --root-pass overrides per card
+DOCKER_IMG="lyra:rk3506-ubuntu-build"   # the SDK's own rk3506-ubuntu.dockerfile
+
+# Everything the appliance needs — and nothing that manages the network.
+PKGS_CORE="systemd systemd-sysv systemd-timesyncd udev dbus kmod
+           openssh-server iproute2 hostapd dnsmasq iw wpasupplicant
+           isc-dhcp-client avahi-daemon rfkill wireless-regdb ca-certificates"
+# Small but invaluable on a headless camera box; trim if you want it tighter.
+PKGS_DEBUG="usbutils v4l-utils iputils-ping"
+
+die()  { echo "error: $*" >&2; exit 1; }
+warn() { echo ">> WARN: $*" >&2; }
+info() { echo ">> $*"; }
+need() { command -v "$1" >/dev/null 2>&1 || die "missing tool: $1 (see the header for the apt install line)"; }
+
+usage() {
+    awk 'NR>=2 && /^#/{sub(/^# ?/,"");print;next} NR>=2{exit}' "$0"
+    exit "${1:-0}"
+}
+
+# --- args --------------------------------------------------------------------
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --sdk)        SDK="${2:-}"; shift 2 ;;
+        --base-image) BASE_IMAGE="${2:-}"; shift 2 ;;
+        --suite)      SUITE="${2:-}"; shift 2 ;;
+        --mirror)     MIRROR="${2:-}"; shift 2 ;;
+        --out)        OUT="${2:-}"; shift 2 ;;
+        --work)       WORK="${2:-}"; shift 2 ;;
+        --skip-kernel)      SKIP_KERNEL=1; shift ;;
+        --keep-base-kernel) KEEP_BASE_KERNEL=1; shift ;;
+        --native)           NATIVE=1; shift ;;
+        --yes|-y)     ASSUME_YES=1; shift ;;
+        -h|--help) usage 0 ;;
+        *) die "unknown argument: $1 (see --help)" ;;
+    esac
+done
+
+[[ $EUID -eq 0 ]] || die "run as root (sudo ...)"
+for t in debootstrap rsync losetup parted blkid mkfs.ext4 curl file bzip2 df stat; do need "$t"; done
+[[ -x /usr/bin/qemu-arm-static ]] || die "install qemu-user-static + binfmt-support first"
+
+# --- interactive: resolve the inputs -----------------------------------------
+if [[ -z "$BASE_IMAGE" ]]; then
+    [[ -z "$ASSUME_YES" ]] || die "--base-image is required with --yes"
+    echo "A known-good dd-able base image is required — its bootloader/partition"
+    echo "table are reused verbatim (e.g. Luckfox_Lyra_Zero_W-2503_Ubuntu.img.bz2"
+    echo "from https://github.com/platima/SBC-Images, the one whose AP is proven)."
+    read -rp "Path to the base image: " BASE_IMAGE
+fi
+[[ -f "$BASE_IMAGE" ]] || die "base image not found: $BASE_IMAGE"
+
+if [[ -z "$KEEP_BASE_KERNEL" && -z "$SDK" ]]; then
+    [[ -z "$ASSUME_YES" ]] || die "--sdk is required with --yes (or pass --keep-base-kernel)"
+    echo
+    echo "The UVC-enabled kernel is built from the rk3506-ubuntu SDK"
+    echo "(markbirss/rk3506-ubuntu, branch luckfox-bpi — see the one-time setup"
+    echo "in docs/rk3506-ubuntu-uvc-image.md). Leave empty to SKIP the kernel"
+    echo "and only swap the rootfs — the image then keeps the stock kernel and"
+    echo "has NO UVC."
+    read -rp "Path to the rk3506-ubuntu SDK clone (empty = keep base kernel): " SDK
+    [[ -n "$SDK" ]] || KEEP_BASE_KERNEL=1
+fi
+if [[ -z "$KEEP_BASE_KERNEL" ]]; then
+    [[ -d "$SDK" ]] || die "SDK dir not found: $SDK"
+    SDK="$(readlink -f "$SDK")"   # docker -v needs an absolute path
+    [[ -e "$SDK/build.sh" ]] || die "$SDK/build.sh not found — this must be an rk3506-ubuntu SDK clone (git clone -b luckfox-bpi https://github.com/markbirss/rk3506-ubuntu.git)"
+    [[ -e "$SDK/device/rockchip/.chip" ]] || die "SDK not bootstrapped: device/rockchip/.chip is missing. One-time setup:
+    cd $SDK/device/rockchip/.chips/rk3506
+    ln -s .chips/rk3506 ../../rk3506 && ln -s .chips/rk3506 ../../.chip
+then run './build.sh lunch' in the build environment (see docs/rk3506-ubuntu-uvc-image.md)."
+fi
+
+# The SDK's own build environment: Ubuntu 22.04 + python2 + a global
+# python->python2 symlink. NEVER install that on the host — run every SDK
+# command inside the docker image the SDK itself ships (rk3506-ubuntu.dockerfile).
+# The dockerfile uses a shell-form ENTRYPOINT, so commands go via --entrypoint.
+sdk_run() {
+    if [[ -n "$NATIVE" ]]; then
+        ( cd "$SDK" && bash -c "$*" )
+    else
+        docker run --rm -v "$SDK":/build -w /build \
+            --entrypoint /bin/bash "$DOCKER_IMG" -c "$*"
+    fi
+}
+if [[ -z "$KEEP_BASE_KERNEL" ]]; then
+    if [[ -n "$NATIVE" ]]; then
+        warn "--native: SDK commands run on THIS host — it needs Ubuntu 22.04,"
+        warn "python2, and 'python' pointing at python2 (the SDK README's"
+        warn "'ln -sf /usr/bin/python2 /usr/bin/python'). Docker is safer."
+        command -v python2 >/dev/null 2>&1 || warn "python2 not found on this host — the SDK build will likely fail"
+    else
+        need docker
+        if ! docker image inspect "$DOCKER_IMG" >/dev/null 2>&1; then
+            [[ -f "$SDK/rk3506-ubuntu.dockerfile" ]] || die "$SDK/rk3506-ubuntu.dockerfile not found — wrong SDK checkout?"
+            info "building the SDK docker image '$DOCKER_IMG' (one-time)"
+            ( cd "$SDK" && docker build --rm -f rk3506-ubuntu.dockerfile -t "$DOCKER_IMG" . ) \
+                || die "docker image build failed"
+        fi
+    fi
+fi
+
+WORK="${WORK:-$PWD/build-lyra-minimal}"
+OUT="${OUT:-$PWD/camera-box-lyra-minimal.img}"
+
+# --- interactive: enough space in the selected folders? ----------------------
+# The work dir holds the decompressed base copy + the debootstrap rootfs; the
+# output is another full copy of the base image.
+base_sz="$(stat -c%s "$BASE_IMAGE")"
+case "$BASE_IMAGE" in
+    *.img|*.raw) raw_est=$base_sz ;;
+    *)           raw_est=$((base_sz * 4)) ;;   # rough decompressed estimate
+esac
+need_work=$((raw_est + 3 * 1024 * 1024 * 1024))   # base copy + rootfs + slack
+need_out=$raw_est
+mkdir -p "$WORK" "$(dirname "$OUT")"
+free_b()  { df -B1 --output=avail "$1" 2>/dev/null | tail -1 | tr -d ' '; }
+fs_of()   { df --output=source "$1" 2>/dev/null | tail -1; }
+gb()      { echo "$(( ${1:-0} / 1024 / 1024 / 1024 ))G"; }
+
+echo
+echo "Build plan:"
+echo "  base image : $BASE_IMAGE ($(gb "$base_sz"), ~$(gb "$raw_est") raw)"
+if [[ -n "$KEEP_BASE_KERNEL" ]]; then
+    echo "  kernel     : KEPT from the base image (no UVC!)"
+else
+    kenv="in docker ($DOCKER_IMG)"; [[ -n "$NATIVE" ]] && kenv="NATIVE on this host"
+    echo "  kernel     : rk3506-ubuntu SDK at $SDK (+ UVC, $kenv)${SKIP_KERNEL:+ [reusing existing build]}"
+fi
+echo "  rootfs     : Debian $SUITE minbase from $MIRROR"
+echo "  work dir   : $WORK (free $(gb "$(free_b "$WORK")"), need ~$(gb "$need_work"))"
+echo "  output     : $OUT (free $(gb "$(free_b "$(dirname "$OUT")")"), need ~$(gb "$need_out"))"
+
+space_ok=1
+if [[ "$(fs_of "$WORK")" == "$(fs_of "$(dirname "$OUT")")" ]]; then
+    [[ "$(free_b "$WORK")" -ge $((need_work + need_out)) ]] || space_ok=""
+else
+    [[ "$(free_b "$WORK")" -ge "$need_work" ]] || space_ok=""
+    [[ "$(free_b "$(dirname "$OUT")")" -ge "$need_out" ]] || space_ok=""
+fi
+if [[ -z "$space_ok" ]]; then
+    warn "NOT enough free space for the estimated need (pick another --work/--out, or free space)"
+    [[ -z "$ASSUME_YES" ]] || die "aborting (--yes given)"
+    read -rp "Continue anyway? [y/N] " ans
+    [[ "$ans" =~ ^[yY] ]] || { echo "aborted."; exit 1; }
+fi
+if [[ -z "$ASSUME_YES" ]]; then
+    read -rp "Type YES to build: " ans
+    [[ "$ans" == "YES" ]] || { echo "aborted."; exit 1; }
+fi
+
+ROOTFS="$WORK/rootfs"
+IMGMNT="$WORK/imgmnt"
+BASEMNT="$WORK/basemnt"
+mkdir -p "$ROOTFS" "$IMGMNT" "$BASEMNT"
+
+LOOP=""
+cleanup() {
+    set +e
+    umount "$ROOTFS/dev/pts" 2>/dev/null
+    umount "$ROOTFS/dev" "$ROOTFS/proc" "$ROOTFS/sys" 2>/dev/null
+    umount "$IMGMNT" "$BASEMNT" 2>/dev/null
+    [[ -n "$LOOP" ]] && losetup -d "$LOOP" 2>/dev/null
+}
+trap cleanup EXIT
+
+# =============================================================================
+# Phase 1 — kernel with UVC, from the rk3506-ubuntu SDK (in docker)
+# =============================================================================
+BOOT_IMG=""
+KDIR=""
+KVER=""
+if [[ -z "$KEEP_BASE_KERNEL" ]]; then
+    # locate the kernel tree inside the SDK
+    for d in "$SDK"/kernel-* "$SDK/kernel"; do
+        [[ -f "$d/Makefile" && -d "$d/arch/arm/configs" ]] && { KDIR="$d"; break; }
+    done
+    [[ -n "$KDIR" ]] || die "couldn't find the kernel tree under $SDK (expected \$SDK/kernel*/Makefile)"
+    info "kernel tree: $KDIR"
+
+    if [[ -z "$SKIP_KERNEL" ]]; then
+        # -- enable UVC in the board defconfig (idempotent, marker-guarded) ---
+        # Exactly the options from docs/rk3506-ubuntu-uvc-image.md.
+        DEFCONFIG="$(ls "$KDIR/arch/arm/configs" | grep -iE 'rk3506|lyra' | head -1)"
+        [[ -n "$DEFCONFIG" ]] || die "no rk3506/lyra defconfig in $KDIR/arch/arm/configs — pass the right SDK"
+        info "board defconfig: $DEFCONFIG"
+        if ! grep -q '# camera-box: UVC' "$KDIR/arch/arm/configs/$DEFCONFIG"; then
+            cat >> "$KDIR/arch/arm/configs/$DEFCONFIG" <<'EOF'
+
+# camera-box: UVC (USB webcam) support — do not remove
+CONFIG_MEDIA_SUPPORT=y
+CONFIG_MEDIA_USB_SUPPORT=y
+CONFIG_MEDIA_CAMERA_SUPPORT=y
+CONFIG_VIDEO_DEV=y
+CONFIG_USB_VIDEO_CLASS=m
+EOF
+            info "appended the UVC config block to $DEFCONFIG"
+        else
+            info "UVC config block already present in $DEFCONFIG"
+        fi
+        # a stale .config would shadow the defconfig change on some SDK builds
+        [[ -f "$KDIR/.config" ]] && grep -q '^CONFIG_USB_VIDEO_CLASS=m' "$KDIR/.config" \
+            || rm -f "$KDIR/.config"
+
+        if [[ -n "$NATIVE" ]]; then env_label="native"; else env_label="in docker"; fi
+        info "building the kernel via the SDK ($env_label) — this is the long part"
+        sdk_run './build.sh kernel' || die "SDK kernel build failed — check the SDK output above"
+    else
+        info "--skip-kernel: reusing the SDK's existing kernel build"
+    fi
+
+    grep -q '^CONFIG_USB_VIDEO_CLASS=m' "$KDIR/.config" \
+        || die "CONFIG_USB_VIDEO_CLASS is NOT =m in $KDIR/.config after the build — the defconfig change didn't take; enable it via the SDK's kernel menuconfig and re-run with --skip-kernel"
+
+    # the SDK packs the kernel+dtb into a Rockchip boot image — find it
+    for c in "$SDK/output/image/boot.img" "$SDK/rockdev/boot.img" "$SDK/output/firmware/boot.img" \
+             "$KDIR/boot.img" $(find "$SDK/output" "$SDK/rockdev" -maxdepth 3 -name 'boot.img' 2>/dev/null); do
+        [[ -f "$c" && ( -z "$BOOT_IMG" || "$c" -nt "$BOOT_IMG" ) ]] && BOOT_IMG="$c"
+    done
+    [[ -n "$BOOT_IMG" ]] || die "no boot.img found under $SDK after the kernel build — check where your SDK version emits it and adjust this script"
+    info "boot image: $BOOT_IMG"
+
+    # stage the modules from inside the build environment (host has no
+    # matching toolchain/python2); the staging dir lives in the bind-mounted
+    # SDK so the host can copy from it afterwards
+    KREL="${KDIR##*/}"                       # e.g. kernel-6.1
+    CROSS="$(find "$SDK/prebuilts" -path '*bin/arm-*-gcc' 2>/dev/null | head -1)"
+    [[ -n "$CROSS" ]] || die "no ARM cross toolchain under $SDK/prebuilts"
+    CROSS_REL="${CROSS#"$SDK"/}"             # SDK-relative, valid in the container
+    info "staging kernel modules (INSTALL_MOD_STRIP=1)"
+    rm -rf "$SDK/.camerabox-modules"
+    sdk_run "make -C $KREL ARCH=arm CROSS_COMPILE=\$PWD/${CROSS_REL%gcc} \
+             INSTALL_MOD_PATH=\$PWD/.camerabox-modules INSTALL_MOD_STRIP=1 modules_install" \
+        || die "modules_install failed"
+
+    KVER="$(ls "$SDK/.camerabox-modules/lib/modules" 2>/dev/null | head -1)"
+    [[ -n "$KVER" ]] || die "no modules staged under $SDK/.camerabox-modules"
+    info "kernel release: $KVER"
+fi
+
+# =============================================================================
+# Phase 2 — minimal Debian rootfs (debootstrap minbase, armhf, under qemu)
+# =============================================================================
+if [[ -f "$ROOTFS/etc/debian_version" ]]; then
+    info "reusing existing debootstrap rootfs in $ROOTFS (delete it to rebuild)"
+else
+    info "debootstrap $SUITE minbase (armhf) -> $ROOTFS"
+    debootstrap --arch=armhf --variant=minbase --foreign "$SUITE" "$ROOTFS" "$MIRROR"
+    cp /usr/bin/qemu-arm-static "$ROOTFS/usr/bin/"
+    chroot "$ROOTFS" /debootstrap/debootstrap --second-stage
+fi
+cp -f /usr/bin/qemu-arm-static "$ROOTFS/usr/bin/" 2>/dev/null || true
+
+mount --bind /dev  "$ROOTFS/dev"
+mkdir -p "$ROOTFS/dev/pts"; mount -t devpts devpts "$ROOTFS/dev/pts" 2>/dev/null || true
+mount --bind /proc "$ROOTFS/proc"
+mount --bind /sys  "$ROOTFS/sys"
+mkdir -p "$ROOTFS/tmp"; chmod 1777 "$ROOTFS/tmp"
+printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > "$ROOTFS/etc/resolv.conf"
+
+info "installing the camera-box requirements (emulated — slow)"
+chroot "$ROOTFS" /bin/bash -e <<CHROOT
+export DEBIAN_FRONTEND=noninteractive
+APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none \
+     -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef"
+\$APT update
+\$APT install -y --no-install-recommends $PKGS_CORE $PKGS_DEBUG
+\$APT install -y --no-install-recommends ustreamer \
+    || echo ">> NOTE: 'ustreamer' not in apt for $SUITE — build it on the device (see docs/luckfox-lyra-zero-w.md)"
+\$APT clean
+rm -rf /var/lib/apt/lists/*
+CHROOT
+
+# =============================================================================
+# Phase 3 — generic OS base (NO hotspot/app config — that's prepare-sd.sh's job)
+# =============================================================================
+info "configuring the OS base (hostname, ssh, first-boot identity)"
+
+echo "camera-box" > "$ROOTFS/etc/hostname"
+cat > "$ROOTFS/etc/hosts" <<'EOF'
+127.0.0.1	localhost
+127.0.1.1	camera-box
+EOF
+# the bootloader's cmdline mounts / itself; fstab just remounts it sanely
+cat > "$ROOTFS/etc/fstab" <<'EOF'
+LABEL=rootfs  /  ext4  defaults,noatime  0  1
+EOF
+echo 'LANG=C.UTF-8' > "$ROOTFS/etc/default/locale"
+
+# fallback root login if the image is flashed without prepare-sd.sh
+# (prepare-sd.sh --root-pass overrides this per card)
+chroot "$ROOTFS" /bin/bash -c "echo 'root:$DEFAULT_ROOT_PASS' | chpasswd"
+
+# ssh: allow root+password over the AP; per-device host keys on first boot
+mkdir -p "$ROOTFS/etc/ssh/sshd_config.d"
+echo 'PermitRootLogin yes' > "$ROOTFS/etc/ssh/sshd_config.d/camera-box.conf"
+rm -f "$ROOTFS"/etc/ssh/ssh_host_*
+cat > "$ROOTFS/etc/systemd/system/ssh-hostkeys.service" <<'EOF'
+[Unit]
+Description=Generate SSH host keys on first boot
+Before=ssh.service
+ConditionPathExists=!/etc/ssh/ssh_host_ed25519_key
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# unique machine-id per device (regenerated on first boot)
+: > "$ROOTFS/etc/machine-id"
+rm -f "$ROOTFS/var/lib/dbus/machine-id"
+
+# default resolver placeholder; camera-box/dhclient overwrite it in client mode
+printf 'nameserver 1.1.1.1\n' > "$ROOTFS/etc/resolv.conf"
+
+# marker so prepare-sd.sh/diagnose-sd.sh recognise this image (headless setup)
+cat > "$ROOTFS/etc/camerabox-minimal-release" <<EOF
+IMAGE=camera-box-minimal-luckfox-lyra-zero-w
+BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+SUITE=$SUITE
+KERNEL=${KVER:-base-image-kernel}
+EOF
+
+# ssh on; hostapd/dnsmasq OFF until prepare-sd.sh writes their config and
+# enables them — a bare image must boot clean, not with failing services
+if ! systemctl --root="$ROOTFS" enable ssh ssh-hostkeys >/dev/null 2>&1; then
+    w="$ROOTFS/etc/systemd/system/multi-user.target.wants"; mkdir -p "$w"
+    ln -sf /etc/systemd/system/ssh-hostkeys.service "$w/ssh-hostkeys.service"
+    for base in /lib/systemd/system /usr/lib/systemd/system; do
+        [[ -f "$ROOTFS$base/ssh.service" ]] && { ln -sf "$base/ssh.service" "$w/ssh.service"; break; }
+    done
+fi
+systemctl --root="$ROOTFS" disable hostapd dnsmasq >/dev/null 2>&1 \
+    || rm -f "$ROOTFS/etc/systemd/system/multi-user.target.wants/"{hostapd,dnsmasq}.service
+
+umount "$ROOTFS/dev/pts" 2>/dev/null || true
+umount "$ROOTFS/dev" "$ROOTFS/proc" "$ROOTFS/sys" 2>/dev/null || true
+
+# =============================================================================
+# Phase 4 — kernel modules (ours) into the rootfs
+# =============================================================================
+if [[ -z "$KEEP_BASE_KERNEL" ]]; then
+    info "installing the staged kernel modules into the rootfs"
+    mkdir -p "$ROOTFS/lib"
+    rm -rf "$ROOTFS/lib/modules/$KVER"
+    cp -a "$SDK/.camerabox-modules/lib/modules" "$ROOTFS/lib/"
+    depmod -b "$ROOTFS" "$KVER" 2>/dev/null || true
+
+    find "$ROOTFS/lib/modules/$KVER" -name 'uvcvideo.ko*' | grep -q . \
+        || die "uvcvideo.ko missing from the module install — UVC didn't build; check the kernel config"
+    info "uvcvideo.ko present"
+
+    if ! find "$ROOTFS/lib/modules/$KVER" -iname '*aic*' | grep -q .; then
+        warn "no aic8800 module in the kernel build output!"
+        warn "The Wi-Fi driver may be an external module in your SDK version."
+        warn "Find it (e.g. \$SDK/external/*aic*, or the wifi section of the SDK's"
+        warn "BoardConfig) and make sure it's built — WITHOUT it there is no wlan0"
+        warn "and no hotspot. Continuing anyway."
+    fi
+    # load uvcvideo at boot (belt & braces; udev would load it on hotplug too)
+    echo uvcvideo > "$ROOTFS/etc/modules-load.d/camera-box.conf"
+fi
+
+# =============================================================================
+# Phase 5 — assemble: proven boot chain + our boot.img + our rootfs
+# =============================================================================
+info "preparing the output image from the base image"
+BASE_RAW="$WORK/base.img"
+if [[ ! -f "$BASE_RAW" ]]; then
+    case "$BASE_IMAGE" in
+        *.bz2) need bzip2; bzip2 -dc "$BASE_IMAGE" > "$BASE_RAW" ;;
+        *.xz)  need xz;    xz    -dc "$BASE_IMAGE" > "$BASE_RAW" ;;
+        *.gz)  need gzip;  gzip  -dc "$BASE_IMAGE" > "$BASE_RAW" ;;
+        *.img|*.raw)       cp "$BASE_IMAGE" "$BASE_RAW" ;;
+        *) die "unrecognised base image extension: $BASE_IMAGE (want .img[.bz2|.gz|.xz])" ;;
+    esac
+fi
+cp -f "$BASE_RAW" "$OUT"
+
+LOOP="$(losetup --show -fP "$OUT")" || die "losetup failed"
+info "image attached at $LOOP"
+partprobe "$LOOP" 2>/dev/null || true; sleep 1
+
+# find the rootfs partition: the ext4 one that contains /etc + /usr
+ROOTP=""
+for p in "$LOOP"p*; do
+    [[ -b "$p" ]] || continue
+    [[ "$(blkid -o value -s TYPE "$p" 2>/dev/null)" == ext4 ]] || continue
+    if mount -o ro "$p" "$BASEMNT" 2>/dev/null; then
+        [[ -d "$BASEMNT/etc" && -d "$BASEMNT/usr" ]] && ROOTP="$p"
+        umount "$BASEMNT"
+        [[ -n "$ROOTP" ]] && break
+    fi
+done
+[[ -n "$ROOTP" ]] || { lsblk "$LOOP" >&2; die "no ext4 rootfs partition found in the base image"; }
+info "base rootfs partition: $ROOTP"
+
+# harvest what only the proven image can give us: the AIC8800 firmware blobs
+# (and, with --keep-base-kernel, its modules — they must match its kernel)
+mount -o ro "$ROOTP" "$BASEMNT"
+info "harvesting AIC8800 firmware from the base image"
+fw_found=""
+for d in "$BASEMNT"/lib/firmware/*aic* "$BASEMNT"/usr/lib/firmware/*aic* \
+         "$BASEMNT"/etc/firmware/*aic*; do
+    [[ -e "$d" ]] || continue
+    mkdir -p "$ROOTFS/lib/firmware"
+    cp -a "$d" "$ROOTFS/lib/firmware/"
+    fw_found=1
+done
+[[ -n "$fw_found" ]] || warn "no aic8800 firmware found in the base image — if Wi-Fi fails, locate the blobs (dmesg will name the missing file) and copy them to /lib/firmware"
+if [[ -n "$KEEP_BASE_KERNEL" ]]; then
+    info "--keep-base-kernel: copying the base image's kernel modules"
+    cp -a "$BASEMNT/lib/modules" "$ROOTFS/lib/" 2>/dev/null \
+        || warn "base image has no /lib/modules (kernel may be fully built-in)"
+fi
+BASE_UUID="$(blkid -o value -s UUID "$ROOTP")"
+umount "$BASEMNT"
+
+# replace the kernel: dd our boot.img over the base image's boot partition
+if [[ -z "$KEEP_BASE_KERNEL" ]]; then
+    BOOTP=""
+    # prefer the GPT partition named "boot"
+    for p in "$LOOP"p*; do
+        [[ -b "$p" && "$p" != "$ROOTP" ]] || continue
+        [[ "$(lsblk -no PARTLABEL "$p" 2>/dev/null)" == boot ]] && { BOOTP="$p"; break; }
+    done
+    # fallback: the partition whose current content shares our boot.img's magic
+    if [[ -z "$BOOTP" ]]; then
+        magic="$(od -An -tx1 -N4 "$BOOT_IMG" | tr -d ' \n')"
+        for p in "$LOOP"p*; do
+            [[ -b "$p" && "$p" != "$ROOTP" ]] || continue
+            [[ "$(od -An -tx1 -N4 "$p" 2>/dev/null | tr -d ' \n')" == "$magic" ]] && { BOOTP="$p"; break; }
+        done
+    fi
+    [[ -n "$BOOTP" ]] || { lsblk -o NAME,SIZE,PARTLABEL,FSTYPE "$LOOP" >&2; \
+        die "couldn't identify the boot partition — check the layout above and adapt the script"; }
+    bsz="$(blockdev --getsize64 "$BOOTP")"; isz="$(stat -c%s "$BOOT_IMG")"
+    [[ "$isz" -le "$bsz" ]] || die "boot.img ($isz bytes) doesn't fit the boot partition ($bsz bytes)"
+    info "writing our UVC-enabled boot.img -> $BOOTP"
+    dd if="$BOOT_IMG" of="$BOOTP" bs=4M conv=fsync status=none
+fi
+
+# replace the rootfs: fresh ext4 (same UUID — the boot cmdline may reference
+# it), then copy the minimal rootfs in
+info "formatting the rootfs partition and copying the minimal rootfs"
+mkfs.ext4 -Fq ${BASE_UUID:+-U "$BASE_UUID"} -L rootfs "$ROOTP"
+mount "$ROOTP" "$IMGMNT"
+rm -f "$ROOTFS/usr/bin/qemu-arm-static"
+rsync -aHAX --numeric-ids "$ROOTFS"/ "$IMGMNT"/
+sync
+umount "$IMGMNT"
+losetup -d "$LOOP"; LOOP=""
+
+info "done."
+echo
+echo "Image: $OUT ($(du -h "$OUT" | cut -f1))"
+echo "(compress for sharing: bzip2 -k9 $OUT)"
+echo
+echo "This image is generic — no camera-box, no hotspot yet. Deploy each SD"
+echo "card with the ONE deployment script (it flashes, installs camera-box,"
+echo "and writes the hotspot + root-password config; the apt step is skipped"
+echo "because the dependencies are already in this image):"
+echo
+echo "  sudo bash scripts/prepare-sd.sh --image $OUT \\"
+echo "      --ssid CameraBox --pass CameraBox123 --ip 192.168.4.1/24 --root-pass secret"
+echo
+echo "On a fresh board, erase the SPI flash once so it boots from SD"
+echo "(docs/luckfox-lyra-zero-w.md#troubleshooting). After boot:"
+if [[ -z "$KEEP_BASE_KERNEL" ]]; then
+    echo "  - plug a USB camera:  ls -l /dev/video*   (uvcvideo is in this kernel)"
+else
+    echo "  NOTE: --keep-base-kernel — the stock kernel has NO UVC; this image is"
+    echo "  for validating the minimal rootfs (hotspot + dashboard) only."
+fi

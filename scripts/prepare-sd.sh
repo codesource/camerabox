@@ -9,6 +9,13 @@
 # It will interactively let you PICK the SD card. Optionally pass --image to
 # flash a raw image first.
 #
+# This is the ONE deployment script. The recommended flow is the build/deploy
+# split: build the purpose-built minimal image once with
+# scripts/build-minimal-image-luckfox-lyra-zero-w.sh (UVC kernel + all
+# dependencies baked in — the slow apt step is then skipped automatically),
+# and deploy every card with this script. It also still works on the plain
+# community Ubuntu image (hotspot/dashboard only; that kernel has no UVC).
+#
 #   sudo bash scripts/prepare-sd.sh [--binary ./camera-box | --no-binary] [--image FILE|URL] \
 #                                   [--ssid NAME] [--pass SECRET] [--ip 192.168.4.1/24] \
 #                                   [--root-pass SECRET] [--grow]
@@ -37,7 +44,7 @@ set -euo pipefail
 AP_SSID="CameraBox"
 AP_PASS="CameraBox123"
 AP_IP="192.168.4.1/24"
-ROOT_PASS="camerabox"   # headless Armbian: preset root login (SSH over the AP)
+ROOT_PASS="camerabox"   # headless: preset root login (SSH over the AP)
 BINARY=""
 IMAGE=""
 NOBIN=""
@@ -173,9 +180,9 @@ for p in $(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{print $1}'
     umount "$p" 2>/dev/null || true
 done
 
-# Find the root filesystem partition. Layouts differ per image (Armbian's rootfs
-# is partition 1; the Luckfox Ubuntu image used partition 3), so probe each
-# ext*/btrfs/f2fs partition for a Linux root instead of assuming a number.
+# Find the root filesystem partition. Layouts differ per image (the Luckfox
+# Ubuntu image and our minimal image use partition 3; others differ), so probe
+# each ext*/btrfs/f2fs partition for a Linux root instead of assuming a number.
 find_rootfs() {
     local p type lbl tmp cand=()
     # collect all Linux-filesystem partitions on the card
@@ -222,9 +229,9 @@ umount "$ROOTP" 2>/dev/null || true   # the desktop may have auto-mounted it
 info "root filesystem: $ROOTP"
 
 # --- grow the rootfs (opt-in) ------------------------------------------------
-# Off by default: most images (Armbian, Raspberry Pi OS, ...) auto-expand the
-# rootfs on first boot, and rewriting the partition table here can disturb the
-# board's boot layout (Rockchip u-boot lives just before the first partition).
+# Off by default: many images (Raspberry Pi OS, ...) auto-expand the rootfs on
+# first boot, and rewriting the partition table here can disturb the board's
+# boot layout (Rockchip u-boot lives just before the first partition).
 # Pass --grow only for images that ship a full, non-resizing rootfs.
 lastpart="$(lsblk -lnpo NAME,TYPE "$DEV" 2>/dev/null | awk '$2=="part"{n=$1} END{print n}')"
 if [[ -z "$GROW" ]]; then
@@ -431,23 +438,44 @@ if [[ -d "$MNT/etc/NetworkManager" ]]; then
         > "$MNT/etc/NetworkManager/conf.d/camera-box.conf"
 fi
 
-# Headless AP-only first boot (Armbian). Armbian's stock first boot runs an
-# interactive account-creation wizard and force-expires root; on a console-less,
-# hotspot-only device that leaves it unreachable. Preset a root login, skip the
-# wizard, enable ssh, and don't wait for a (non-existent) uplink at boot.
-if [[ -f "$MNT/etc/armbian-release" || -e "$MNT/root/.not_logged_in_yet" ]]; then
-    info "configuring Armbian for headless AP-only first boot (root pw: $ROOT_PASS)"
-    echo "root:$ROOT_PASS" | chpasswd --root "$MNT" 2>/dev/null \
-        || chroot "$MNT" /bin/bash -c "echo 'root:$ROOT_PASS' | chpasswd" 2>/dev/null \
-        || warn "could not preset the root password"
-    rm -f "$MNT/root/.not_logged_in_yet"
-    systemctl --root="$MNT" enable ssh >/dev/null 2>&1 \
-        || systemctl --root="$MNT" enable sshd >/dev/null 2>&1 || true
-    systemctl --root="$MNT" disable systemd-networkd-wait-online.service \
-        NetworkManager-wait-online.service >/dev/null 2>&1 || true
-fi
+# Same for systemd-networkd (netplan/networkd images): a "dhcp on all
+# interfaces" netplan profile would claim wlan0 and strip the AP's static IP
+# at boot. Harmless where networkd is disabled, essential where it isn't.
+mkdir -p "$MNT/etc/systemd/network"
+cat > "$MNT/etc/systemd/network/05-wlan0-unmanaged.network" <<'EOF'
+# Managed by camera-box — keep systemd-networkd off the AP interface.
+[Match]
+Name=wlan0
+
+[Link]
+Unmanaged=yes
+EOF
+
+# Headless AP-only first boot. The hotspot is the only way in on a console-less
+# device: preset a root login (SSH over the AP), enable ssh, and don't block
+# boot waiting for an uplink that doesn't exist.
+info "configuring a headless AP-only first boot (root pw: $ROOT_PASS)"
+echo "root:$ROOT_PASS" | chpasswd --root "$MNT" 2>/dev/null \
+    || chroot "$MNT" /bin/bash -c "echo 'root:$ROOT_PASS' | chpasswd" 2>/dev/null \
+    || warn "could not preset the root password"
+systemctl --root="$MNT" enable ssh >/dev/null 2>&1 \
+    || systemctl --root="$MNT" enable sshd >/dev/null 2>&1 || true
+systemctl --root="$MNT" disable systemd-networkd-wait-online.service \
+    NetworkManager-wait-online.service >/dev/null 2>&1 || true
 
 # --- install runtime dependencies inside the ARM rootfs (qemu chroot) -------
+# Images built by build-minimal-image-luckfox-lyra-zero-w.sh already contain
+# every dependency — detect that and skip the slow emulated apt step entirely.
+deps_present=1
+[[ -e "$MNT/usr/sbin/hostapd" ]] || deps_present=""
+[[ -e "$MNT/usr/sbin/dnsmasq" ]] || deps_present=""
+[[ -e "$MNT/usr/sbin/wpa_supplicant" || -e "$MNT/sbin/wpa_supplicant" ]] || deps_present=""
+[[ -e "$MNT/usr/sbin/iw" || -e "$MNT/sbin/iw" ]] || deps_present=""
+[[ -e "$MNT/usr/sbin/rfkill" || -e "$MNT/usr/bin/rfkill" ]] || deps_present=""
+if [[ -n "$deps_present" ]]; then
+    info "dependencies already present in the image — skipping the apt chroot step"
+    deps_ok=1
+else
 info "installing dependencies in the ARM rootfs (emulated — slow)"
 cp /usr/bin/qemu-arm-static "$MNT/usr/bin/" 2>/dev/null || true
 mkdir -p "$MNT/tmp" && chmod 1777 "$MNT/tmp"
@@ -455,7 +483,7 @@ mount --bind /dev "$MNT/dev"
 mkdir -p "$MNT/dev/pts"; mount -t devpts devpts "$MNT/dev/pts" 2>/dev/null || true
 mount --bind /proc "$MNT/proc"
 mount --bind /sys "$MNT/sys"
-# DNS for the emulated chroot. Debian/Armbian point resolv.conf at the
+# DNS for the emulated chroot. Debian-based images point resolv.conf at the
 # systemd-resolved stub (127.0.0.53) and use the 'resolve' NSS module, which
 # can't work under qemu (resolved isn't running here) — apt then fails with
 # getaddrinfo "Device or resource busy". Swap in a plain resolver + nsswitch
@@ -491,6 +519,7 @@ rm -f "$MNT/usr/bin/qemu-arm-static"
 [[ -n "$resolv_bak" ]] && mv -f "$MNT/etc/resolv.conf.camerabox-bak" "$MNT/etc/resolv.conf" || true
 [[ -n "$nss_bak" ]] && mv -f "$MNT/etc/nsswitch.conf.camerabox-bak" "$MNT/etc/nsswitch.conf" || true
 [[ "$deps_ok" == 1 ]] || warn "DEPENDENCY INSTALL FAILED — hostapd/dnsmasq/etc are NOT installed; the box won't host the hotspot until you fix apt (network?) and re-run this script."
+fi
 
 # --- enable the services for boot (offline, via the host systemctl) ---------
 info "enabling services for first boot"
@@ -529,11 +558,10 @@ echo "(On a Rockchip board you may need to erase the onboard SPI flash once so i
 echo " boots from the SD card — see docs/luckfox-lyra-zero-w.md.)"
 echo "It should host the '$AP_SSID' Wi-Fi hotspot; connect, then:"
 echo "    http://$ip/            dashboard (login: admin / password)"
-if [[ -f "$MNT/etc/armbian-release" || -e "$MNT/root/.not_logged_in_yet" ]]; then
-    echo "    ssh root@$ip     (password: $ROOT_PASS — change it)"
-fi
+echo "    ssh root@$ip     (password: $ROOT_PASS — change it)"
 echo
-echo "Then verify the camera works (the key unknown on this board):"
+echo "Then verify the camera works:"
 echo "    sudo modprobe uvcvideo && ls -l /dev/video*"
-echo "If /dev/video0 does NOT appear, the kernel lacks UVC — build a UVC-enabled"
-echo "image (see docs/armbian-lyra-image.md). Everything else already works."
+echo "If /dev/video0 does NOT appear, the image's kernel lacks UVC — build our"
+echo "own image with scripts/build-minimal-image-luckfox-lyra-zero-w.sh (see"
+echo "docs/minimal-lyra-image.md) and re-run this script with --image on it."

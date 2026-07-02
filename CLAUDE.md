@@ -38,8 +38,12 @@ Releases use static musl via `cross` (Docker): `arm-unknown-linux-musleabihf`
 for Pi Zero W v1.1 (armv6), `aarch64-unknown-linux-musl` / `armv7-...` for the
 Zero 2 W. The **Luckfox Lyra Zero W** (Rockchip RK3506B, triple Cortex-A7) is
 ARMv7 hard-float — the release workflow ships the same `armv7` static binary
-under a board-named asset; it needs the board's **Ubuntu (systemd)** image, not
-Buildroot/BusyBox. There are no tests yet; `cargo test` is a no-op.
+under a board-named asset. Its supported OS is the **camera-box minimal image**
+(build once with `scripts/build-minimal-image-luckfox-lyra-zero-w.sh`, deploy
+per card with `scripts/prepare-sd.sh` — docs/minimal-lyra-image.md); it must be
+a **systemd** system, never Buildroot/BusyBox. **Armbian is not a supported
+route** (its vendor kernel lacks UVC too, and its AIC8800 AP bring-up is broken
+on this board). There are no tests yet; `cargo test` is a no-op.
 
 **Dev workflow notes (this repo is developed on Windows):**
 
