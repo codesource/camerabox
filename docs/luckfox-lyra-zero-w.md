@@ -162,6 +162,7 @@ sudo tee $R/etc/hostapd/hostapd.conf >/dev/null <<'EOF'
 country_code=CH
 interface=wlan0
 driver=nl80211
+ctrl_interface=/var/run/hostapd
 
 ssid=CameraBox
 
@@ -169,6 +170,7 @@ hw_mode=g
 channel=6
 
 ieee80211n=1
+ht_capab=[SHORT-GI-20]
 wmm_enabled=1
 auth_algs=1
 ignore_broadcast_ssid=0

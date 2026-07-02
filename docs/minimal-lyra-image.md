@@ -161,5 +161,12 @@ root login, and enables the services. Different boxes = same image, different
 - **Flashed the bare image without `prepare-sd.sh`?** It boots inert but
   reachable: no hotspot, `ssh root@<dhcp-ip>` password `camerabox`. Run
   `prepare-sd.sh` against the card to finish provisioning.
+- **Wi-Fi works but is very slow (~350 KB/s, clients see −65 dBm or worse
+  nearby).** The onboard chip antenna is extremely weak — **attach an external
+  2.4 GHz antenna to the IPEX (U.FL) socket**. Verified on hardware: onboard
+  −66 dBm / 1–2 Mbit/s downlink vs external −37 dBm / 65 Mbit/s (MCS 7),
+  ~17 Mbit/s real throughput — plenty for several 720p MJPEG streams. (The
+  deploy layer already disables the driver's power-saving and antenna
+  diversity, which is worth another ~3×.)
 - **Inspect a card that won't come up:**
   `sudo bash scripts/diagnose-sd.sh /dev/sdX3` (read-only).

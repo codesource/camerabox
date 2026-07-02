@@ -377,6 +377,7 @@ cat > "$MNT/etc/hostapd/hostapd.conf" <<EOF
 country_code=CH
 interface=wlan0
 driver=nl80211
+ctrl_interface=/var/run/hostapd
 
 ssid=$AP_SSID
 
@@ -384,6 +385,7 @@ hw_mode=g
 channel=6
 
 ieee80211n=1
+ht_capab=[SHORT-GI-20]
 wmm_enabled=1
 auth_algs=1
 ignore_broadcast_ssid=0
@@ -482,6 +484,11 @@ EOF
 mkdir -p "$MNT/etc/systemd/system/hostapd.service.d"
 printf '[Service]\nRestart=on-failure\nRestartSec=3\n' \
     > "$MNT/etc/systemd/system/hostapd.service.d/camera-box.conf"
+
+# The AIC8800 driver enables chip power-saving by default — in AP mode that
+# tanks latency/throughput (the radio naps between beacons). Keep it awake.
+mkdir -p "$MNT/etc/modprobe.d"
+echo 'options aic8800_fdrv ps_on=0' > "$MNT/etc/modprobe.d/camera-box-aic8800.conf"
 
 # Preseed the saved rfkill state as UNBLOCKED. On combo chips (the Lyra's
 # AIC8800DC) the bluetooth rfkill drives the chip's power GPIO; the driver

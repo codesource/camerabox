@@ -297,6 +297,17 @@ EOF
         fi
         info "UVC fragment registered in $BOARD_DEFCONFIG"
 
+        # Fix a vendor DTS bug: vdd_cpu declares itself as its own input
+        # supply (vin-supply = <&vdd_cpu>), so the regulator fails to probe
+        # (-EINVAL) and cpufreq/DVFS never comes up — the CPU stays stuck at
+        # its boot frequency. A fixed regulator needs no vin-supply. NOTE:
+        # the zero-w-sd board includes the *ultra* dtsi — patch both.
+        sed -i '/vin-supply = <&vdd_cpu>;/d' \
+            "$KDIR/arch/arm/boot/dts/rk3506-luckfox-lyra.dtsi" \
+            "$KDIR/arch/arm/boot/dts/rk3506-luckfox-lyra-ultra.dtsi" 2>/dev/null || true
+        # force the DTB to regenerate (its dep tracking misses dtsi edits)
+        rm -f "$KDIR/arch/arm/boot/dts/rk3506b-luckfox-lyra-zero-w-sd.dtb"
+
         # select the board non-interactively — './build.sh <name>_defconfig'
         # replaces the interactive './build.sh lunch'. Both the select and the
         # build must run as root in the container (build.sh refuses otherwise

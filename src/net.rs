@@ -429,6 +429,7 @@ fn write_hostapd_conf(iface: &str, ap: &ApConfig) -> NetResult<()> {
         "country_code=CH\n\
          interface={iface}\n\
          driver=nl80211\n\
+         ctrl_interface=/var/run/hostapd\n\
          \n\
          ssid={ssid}\n\
          \n\
@@ -436,6 +437,7 @@ fn write_hostapd_conf(iface: &str, ap: &ApConfig) -> NetResult<()> {
          channel=6\n\
          \n\
          ieee80211n=1\n\
+         ht_capab=[SHORT-GI-20]\n\
          wmm_enabled=1\n\
          auth_algs=1\n\
          ignore_broadcast_ssid=0\n\
