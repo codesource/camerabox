@@ -28,6 +28,15 @@ ustreamer_path   = "/usr/bin/ustreamer"
 resolution       = "1280x720"
 fps              = 30
 
+# Optional hardware factory-reset button on a GPIO line. Wire a momentary button
+# between the GPIO and GND; holding it for `reset_hold_secs` wipes all settings
+# and reboots (same as Settings -> Factory reset). Empty = disabled.
+#   reset_button    = "gpiochip0:17"   # chip:line  (also accepts "0:17")
+reset_button     = ""
+reset_hold_secs  = 10
+# Button pressed = line low (to GND, internal pull-up). false = pressed is high.
+reset_active_low = true
+
 # Web UI login: the username/password are NOT in this file. They default to
 # admin / password on first run and are changed from the web UI (stored hashed
 # in /var/lib/camera-box/auth.toml). Forgot it?  camera-box reset-password

@@ -5,6 +5,7 @@
 //! serves a status web UI + JSON API. See `README.md` for the big picture.
 
 mod auth;
+mod button;
 mod camera;
 mod config;
 mod logs;
@@ -106,6 +107,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Background task: uevent hotplug detection + ustreamer supervision.
     tokio::spawn(camera::run(state.clone()));
+
+    // Background task: optional GPIO factory-reset button (no-op if unconfigured).
+    tokio::spawn(button::watch(state.config.clone()));
 
     // Foreground task: the web UI / API.
     let addr = SocketAddr::from(([0, 0, 0, 0], state.config.web_port));

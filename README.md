@@ -174,6 +174,10 @@ untouched. Locked out? Do it from a shell instead:
 sudo /usr/local/bin/camera-box factory-reset
 ```
 
+Or wire a **hardware reset button**: set `reset_button = "gpiochip0:17"` (chip:line)
+in `config.toml`, connect a momentary button between that GPIO and GND, and
+holding it for `reset_hold_secs` (default 10) triggers the same reset.
+
 ### Daemon logs
 
 ```sh

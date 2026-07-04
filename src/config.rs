@@ -28,6 +28,14 @@ pub struct Config {
     pub resolution: String,
     /// Default frames per second.
     pub fps: u32,
+    /// Optional GPIO factory-reset button, as `chip:line` (e.g. `gpiochip0:17`).
+    /// Empty disables it. Hold the button `reset_hold_secs` to wipe all settings
+    /// and reboot.
+    pub reset_button: String,
+    /// How long the reset button must be held, in seconds.
+    pub reset_hold_secs: u64,
+    /// Button wired to GND with a pull-up (pressed = low). Set false for pressed = high.
+    pub reset_active_low: bool,
 }
 
 impl Default for Config {
@@ -39,6 +47,9 @@ impl Default for Config {
             ustreamer_path: "/usr/bin/ustreamer".to_string(),
             resolution: "1280x720".to_string(),
             fps: 30,
+            reset_button: String::new(),
+            reset_hold_secs: 10,
+            reset_active_low: true,
         }
     }
 }
