@@ -37,8 +37,16 @@ const AP_PATH: &str = "/var/lib/camera-box/network.toml";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // CLI: `camera-box reset-password [user] [pass]` resets the login and exits.
     let args: Vec<String> = std::env::args().collect();
+
+    // CLI: `camera-box version` prints the version and exits (also used by the
+    // self-updater to confirm a freshly-downloaded binary runs on this CPU).
+    if matches!(args.get(1).map(String::as_str), Some("version" | "--version" | "-V")) {
+        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    // CLI: `camera-box reset-password [user] [pass]` resets the login and exits.
     if args.get(1).map(String::as_str) == Some("reset-password") {
         let user = args.get(2).cloned().unwrap_or_else(|| "admin".to_string());
         let pass = args.get(3).cloned().unwrap_or_else(|| "password".to_string());

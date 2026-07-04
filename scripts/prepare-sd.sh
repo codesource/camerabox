@@ -587,7 +587,7 @@ APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none -o Dpkg::Opti
 # recover any half-configured packages left by an earlier interrupted run
 dpkg --configure -a --force-confold --force-confdef 2>/dev/null || true
 $APT update
-$APT install -y hostapd dnsmasq iw wpasupplicant isc-dhcp-client avahi-daemon rfkill
+$APT install -y hostapd dnsmasq iw wpasupplicant isc-dhcp-client avahi-daemon rfkill curl ca-certificates
 $APT install -y ustreamer || echo ">> NOTE: 'ustreamer' not in apt — build it on the device (see docs)"
 CHROOT
 umount "$MNT/dev/pts" 2>/dev/null || true

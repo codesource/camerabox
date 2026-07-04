@@ -144,6 +144,16 @@ From a client connected to the Pi's hotspot (or on the same network):
 The stream URLs and reported IP use whatever address you connected with, so
 `http://camera-box.local/` works too where mDNS is available.
 
+### Updating
+
+**Settings → About → Check for updates** compares the running build with the
+latest GitHub release and, if newer, downloads the matching binary, verifies its
+SHA-256, swaps it in, and restarts — all from the dashboard (the device needs
+internet for this). The download is verified by checksum over HTTPS but is not
+GPG-signed, and the new binary is test-run before install so a bad download is
+rejected rather than bricking the box. The previous binary is kept as
+`/usr/local/bin/camera-box.bak`.
+
 ### Forgot the password?
 
 ```sh
