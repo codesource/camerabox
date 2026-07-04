@@ -787,7 +787,9 @@ var TABS=[['dashboard','dashboard'],['cameras','cameras'],['network','wifi'],['s
 function buildTabs(){ el('tabs').innerHTML=TABS.map(function(tb){return '<button data-p="'+tb[0]+'" onclick="go(\''+tb[0]+'\')"'+(tb[0]===page?' class="active"':'')+'>'+ic(tb[1],18)+t('nav_'+tb[0])+'</button>'; }).join(''); }
 buildTabs();
 el('help').innerHTML=ic('help',18); el('logoutbtn').innerHTML=ic('logout',18); applyChrome();
-function go(p){ page=p;
+function go(p){
+  if(page==='cameras'&&p!=='cameras'){ document.querySelectorAll('#p-cameras img.camsnap').forEach(function(im){im.removeAttribute('src');}); }
+  page=p;
   document.querySelectorAll('.tabs button').forEach(function(b){b.classList.toggle('active',b.dataset.p===p);});
   document.querySelectorAll('.page').forEach(function(s){s.classList.add('hidden');});
   var sec=el('p-'+p); sec.classList.remove('hidden'); sec.style.animation='none'; void sec.offsetHeight; sec.style.animation='';
@@ -850,7 +852,8 @@ function renderCameras(){
 function camCard(c){
  var pill=!c.enabled?'<span class="pill gray">'+t('off')+'</span>':c.running?'<span class="pill green"><span class="dot"></span>'+t('live')+'</span>':'<span class="pill orange">'+t('starting')+'</span>';
  var surl=(c.protected&&c.stream_url&&c.stream_user)?c.stream_url.replace('://','://'+encodeURIComponent(c.stream_user)+':'+encodeURIComponent(c.stream_password||'')+'@'):(c.stream_url||'');
- var thumb=(c.running&&c.stream_url&&!c.protected)?'<img src="'+esc(c.stream_url)+'" style="width:100%;height:100%;object-fit:cover" onerror="this.replaceWith(document.createTextNode(\'\'))">':ic('cameras',34);
+ var snap=(c.running&&c.stream_url&&!c.protected)?c.stream_url.replace('/stream','/snapshot'):'';
+ var thumb=snap?'<img class="camsnap" data-snap="'+esc(snap)+'" src="'+esc(snap)+'" style="width:100%;height:100%;object-fit:cover" onload="this.style.visibility=\'visible\'" onerror="this.style.visibility=\'hidden\'">':ic('cameras',34);
  var q='';
  if(c.modes&&c.modes.length){ c.modes.forEach(function(m){var r=m.width+'x'+m.height;m.fps.forEach(function(f){var v=r+'@'+f;q+='<option value="'+v+'"'+((r===c.resolution&&f===c.fps)?' selected':'')+'>'+r+' · '+f+' fps</option>';});}); }
  var quality=c.modes&&c.modes.length?'<select onchange="camMode(this,\''+esc(c.id)+'\')">'+q+'</select>':'<div class="muted">'+esc(c.resolution)+' · '+c.fps+' fps</div>';
@@ -1050,6 +1053,12 @@ function poll(){ tickN++;
 }
 getJSON('/api/status').then(function(s){ el('hostlabel').textContent=s.hostname||'camera-box'; }).catch(function(){});
 go('dashboard'); setInterval(poll,1000);
+// Refresh camera thumbnails as periodic snapshots (only while the Cameras tab is
+// shown) instead of holding a live MJPEG stream open — far less bandwidth, and it
+// stops when you navigate away. Full /stream only opens via the Preview button.
+function refreshSnaps(){ if(page!=='cameras')return;
+  document.querySelectorAll('#p-cameras img.camsnap').forEach(function(im){ if(im.dataset.snap)im.src=im.dataset.snap+'?t='+Date.now(); }); }
+setInterval(refreshSnaps,2000);
 </script>
 </body>
 </html>
