@@ -746,6 +746,44 @@ fn validate_hostname(name: &str) -> NetResult<()> {
     }
 }
 
+/// Factory reset: wipe all saved application state and revert to defaults —
+/// default login (admin/password), default `CameraBox` hotspot, no cameras and
+/// no saved Wi-Fi profiles, default hostname. Does NOT touch the OS or binary.
+/// The caller should reboot afterwards so everything comes up clean.
+pub async fn factory_reset() -> NetResult<()> {
+    info!("factory reset: wiping saved state and reverting to defaults");
+
+    // 1. persisted per-camera state, saved AP settings, and login credentials.
+    for f in [
+        "/var/lib/camera-box/state.toml",
+        "/var/lib/camera-box/network.toml",
+        "/var/lib/camera-box/auth.toml",
+    ] {
+        let _ = std::fs::remove_file(f);
+    }
+
+    // 2. saved Wi-Fi client profiles.
+    if let Ok(entries) = std::fs::read_dir(PROFILE_DIR) {
+        for e in entries.flatten() {
+            if e.path().extension().is_some_and(|x| x == "conf") {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+
+    // 3. hostname back to default, and regenerate the AP config files from
+    //    defaults so the next boot brings up the default hotspot.
+    let ap = ApConfig::default();
+    let _ = sh("hostnamectl", &["set-hostname", "camera-box"]).await;
+    let _ = update_etc_hosts("camera-box");
+    if let Some(iface) = primary_wifi() {
+        let _ = sync_ap_config(&iface, &ap).await;
+    }
+    let _ = write_ap_hostname_mapping("camera-box", ap_ip_of(&ap.ip_cidr));
+
+    Ok(())
+}
+
 /// Point the `127.0.1.1` line at the new hostname.
 fn update_etc_hosts(name: &str) -> NetResult<()> {
     let content = std::fs::read_to_string("/etc/hosts").map_err(|e| e.to_string())?;

@@ -163,6 +163,17 @@ sudo /usr/local/bin/camera-box reset-password alice s3cret   # or set your own
 sudo systemctl start camera-box
 ```
 
+### Factory reset
+
+**Settings → Factory reset** wipes all saved state — login, cameras, hotspot,
+saved Wi-Fi networks, hostname — back to defaults (login `admin` / `password`,
+hotspot `CameraBox` / `192.168.4.1`) and reboots. The OS and the binary are left
+untouched. Locked out? Do it from a shell instead:
+
+```sh
+sudo /usr/local/bin/camera-box factory-reset
+```
+
 ### Daemon logs
 
 ```sh

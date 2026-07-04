@@ -61,6 +61,21 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // CLI: `camera-box factory-reset` wipes all saved state and reboots
+    // (recovery path when you're locked out of the dashboard).
+    if args.get(1).map(String::as_str) == Some("factory-reset") {
+        if let Err(e) = net::factory_reset().await {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+        println!("Factory reset complete. Rebooting…");
+        let _ = tokio::process::Command::new("systemctl")
+            .args(["reboot"])
+            .status()
+            .await;
+        return Ok(());
+    }
+
     init_tracing();
 
     let config = Config::load(Path::new(CONFIG_PATH));

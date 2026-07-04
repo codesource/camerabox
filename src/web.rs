@@ -49,6 +49,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/system", get(system_info))
         .route("/api/logs", get(logs))
         .route("/api/hostname", post(set_hostname))
+        .route("/api/factory-reset", post(factory_reset))
         .merge(update::router())
         .layer(middleware::from_fn_with_state(state.clone(), require_session))
         .with_state(state)
@@ -463,6 +464,25 @@ async fn set_hostname(State(state): State<Arc<AppState>>, Json(r): Json<Hostname
     net_result(net::set_hostname(&r.name, &ap_ip).await)
 }
 
+/// Wipe all saved state (login, cameras, hotspot, profiles, hostname) back to
+/// defaults, then reboot so the device comes up factory-fresh.
+async fn factory_reset(State(_state): State<Arc<AppState>>) -> Response {
+    match net::factory_reset().await {
+        Ok(()) => {
+            tokio::spawn(async {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let _ = tokio::process::Command::new("systemctl")
+                    .args(["reboot"])
+                    .status()
+                    .await;
+            });
+            Json(json!({ "status": "ok", "message": "Factory reset — the device is rebooting." }))
+                .into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Static page: shell + CSS + the JS that renders/updates from /api/status.
 // ---------------------------------------------------------------------------
@@ -698,7 +718,7 @@ var LANG={
   your_device:"Your device",processor:"Processor",memory:"Memory",storage:"Storage",temperature:"Temperature",network_activity:"Network activity",measuring:"measuring…",interface:"Interface",down:"Down",up:"Up",
   model:"Model",firmware:"Firmware",hostname:"Hostname",local_time:"Local time",system_uptime:"System uptime",cpu:"CPU",disk:"Disk",
   logs_sub:"Recent activity from your device.",search_logs:"Search logs",all_levels:"All levels",autoscroll:"Auto-scroll",onword:"On",offword:"Off",download:"Download",no_log_lines:"No log lines.",
-  settings_sub:"Manage your device.",general:"General",reachable_as:"Reachable as {x}.local",device_name:"Device name",save:"Save",security:"Security",username:"Username",new_password:"New password",update_password:"Update password",about:"About",uptime:"Uptime",check_updates:"Check for updates",checking:"Checking…",up_to_date:"Up to date (v{x})",update_avail:"Version {x} available",update_now:"Update now",updating:"Updating…",update_started:"Update started — the device will restart.",update_confirm:"Download and install the latest version, then restart?",update_check_failed:"Couldn't check for updates.",
+  settings_sub:"Manage your device.",general:"General",reachable_as:"Reachable as {x}.local",device_name:"Device name",save:"Save",security:"Security",username:"Username",new_password:"New password",update_password:"Update password",about:"About",uptime:"Uptime",check_updates:"Check for updates",checking:"Checking…",up_to_date:"Up to date (v{x})",update_avail:"Version {x} available",update_now:"Update now",updating:"Updating…",update_started:"Update started — the device will restart.",update_confirm:"Download and install the latest version, then restart?",update_check_failed:"Couldn't check for updates.",factory_reset:"Factory reset",factory_desc:"Erase all settings — login, cameras, hotspot, saved networks, hostname — and restart with defaults.",factory_confirm:"Erase ALL settings and restart with defaults? The hotspot reverts to CameraBox / 192.168.4.1 and the login to admin / password.",factory_started:"Resetting — the device will reboot.",resetting:"Resetting…",
   name_saved:"Device name saved.",password_updated:"Password updated.",stream_protection:"Stream protection",protected_w:"Protected",auth_user_ph:"username (blank = off)",auth_saved:"Stream protection updated.",copy_link:"Copy link",link_copied:"Stream link copied.",credentials:"Login",protected_stream:"Protected Stream",show_login:"Show login information",copy_creds:"Copy credentials",creds_copied:"Credentials copied."},
  fr:{nav_dashboard:"Tableau de bord",nav_cameras:"Caméras",nav_network:"Réseau",nav_system:"Système",nav_logs:"Journaux",nav_settings:"Réglages",help:"Aide",logout:"Se déconnecter",help_tip:"Branchez des caméras USB et configurez le Wi-Fi dans l'onglet Réseau.",
   welcome:"Bienvenue",all_good:"Tout fonctionne bien. Votre camera-box fonctionne normalement.",needs_sub:"Quelques points nécessitent votre attention.",
@@ -718,7 +738,7 @@ var LANG={
   your_device:"Votre appareil",processor:"Processeur",memory:"Mémoire",storage:"Stockage",temperature:"Température",network_activity:"Activité réseau",measuring:"mesure…",interface:"Interface",down:"Réception",up:"Émission",
   model:"Modèle",firmware:"Micrologiciel",hostname:"Nom d'hôte",local_time:"Heure locale",system_uptime:"Temps de fonctionnement",cpu:"Processeur",disk:"Disque",
   logs_sub:"Activité récente de votre appareil.",search_logs:"Rechercher dans les journaux",all_levels:"Tous les niveaux",autoscroll:"Défilement auto",onword:"Activé",offword:"Désactivé",download:"Télécharger",no_log_lines:"Aucune ligne de journal.",
-  settings_sub:"Gérez votre appareil.",general:"Général",reachable_as:"Accessible via {x}.local",device_name:"Nom de l'appareil",save:"Enregistrer",security:"Sécurité",username:"Nom d'utilisateur",new_password:"Nouveau mot de passe",update_password:"Mettre à jour",about:"À propos",uptime:"Disponibilité",check_updates:"Rechercher des mises à jour",checking:"Vérification…",up_to_date:"À jour (v{x})",update_avail:"Version {x} disponible",update_now:"Mettre à jour",updating:"Mise à jour…",update_started:"Mise à jour lancée — l'appareil va redémarrer.",update_confirm:"Télécharger et installer la dernière version, puis redémarrer ?",update_check_failed:"Impossible de vérifier les mises à jour.",
+  settings_sub:"Gérez votre appareil.",general:"Général",reachable_as:"Accessible via {x}.local",device_name:"Nom de l'appareil",save:"Enregistrer",security:"Sécurité",username:"Nom d'utilisateur",new_password:"Nouveau mot de passe",update_password:"Mettre à jour",about:"À propos",uptime:"Disponibilité",check_updates:"Rechercher des mises à jour",checking:"Vérification…",up_to_date:"À jour (v{x})",update_avail:"Version {x} disponible",update_now:"Mettre à jour",updating:"Mise à jour…",update_started:"Mise à jour lancée — l'appareil va redémarrer.",update_confirm:"Télécharger et installer la dernière version, puis redémarrer ?",update_check_failed:"Impossible de vérifier les mises à jour.",factory_reset:"Réinitialisation d'usine",factory_desc:"Effacer tous les réglages — identifiants, caméras, point d'accès, réseaux enregistrés, nom d'hôte — et redémarrer avec les valeurs par défaut.",factory_confirm:"Effacer TOUS les réglages et redémarrer par défaut ? Le point d'accès redevient CameraBox / 192.168.4.1 et l'identifiant admin / password.",factory_started:"Réinitialisation — l'appareil va redémarrer.",resetting:"Réinitialisation…",
   name_saved:"Nom de l'appareil enregistré.",password_updated:"Mot de passe mis à jour.",stream_protection:"Protection du flux",protected_w:"Protégé",auth_user_ph:"utilisateur (vide = désactivé)",auth_saved:"Protection du flux mise à jour.",copy_link:"Copier le lien",link_copied:"Lien du flux copié.",credentials:"Identifiants",protected_stream:"Flux protégé",show_login:"Afficher les identifiants",copy_creds:"Copier les identifiants",creds_copied:"Identifiants copiés."},
  de:{nav_dashboard:"Übersicht",nav_cameras:"Kameras",nav_network:"Netzwerk",nav_system:"System",nav_logs:"Protokolle",nav_settings:"Einstellungen",help:"Hilfe",logout:"Abmelden",help_tip:"Schließen Sie USB-Kameras an und richten Sie WLAN im Tab Netzwerk ein.",
   welcome:"Willkommen zu Hause",all_good:"Alles in Ordnung. Ihre camera-box läuft normal.",needs_sub:"Einige Dinge erfordern Ihre Aufmerksamkeit.",
@@ -738,7 +758,7 @@ var LANG={
   your_device:"Ihr Gerät",processor:"Prozessor",memory:"Arbeitsspeicher",storage:"Speicher",temperature:"Temperatur",network_activity:"Netzwerkaktivität",measuring:"messe…",interface:"Schnittstelle",down:"Empfang",up:"Senden",
   model:"Modell",firmware:"Firmware",hostname:"Hostname",local_time:"Ortszeit",system_uptime:"Systemlaufzeit",cpu:"CPU",disk:"Festplatte",
   logs_sub:"Letzte Aktivität Ihres Geräts.",search_logs:"Protokolle durchsuchen",all_levels:"Alle Stufen",autoscroll:"Auto-Scroll",onword:"Ein",offword:"Aus",download:"Herunterladen",no_log_lines:"Keine Protokollzeilen.",
-  settings_sub:"Verwalten Sie Ihr Gerät.",general:"Allgemein",reachable_as:"Erreichbar als {x}.local",device_name:"Gerätename",save:"Speichern",security:"Sicherheit",username:"Benutzername",new_password:"Neues Passwort",update_password:"Passwort aktualisieren",about:"Über",uptime:"Laufzeit",check_updates:"Nach Updates suchen",checking:"Suche…",up_to_date:"Aktuell (v{x})",update_avail:"Version {x} verfügbar",update_now:"Jetzt aktualisieren",updating:"Aktualisierung…",update_started:"Update gestartet — das Gerät startet neu.",update_confirm:"Neueste Version herunterladen, installieren und neu starten?",update_check_failed:"Updates konnten nicht geprüft werden.",
+  settings_sub:"Verwalten Sie Ihr Gerät.",general:"Allgemein",reachable_as:"Erreichbar als {x}.local",device_name:"Gerätename",save:"Speichern",security:"Sicherheit",username:"Benutzername",new_password:"Neues Passwort",update_password:"Passwort aktualisieren",about:"Über",uptime:"Laufzeit",check_updates:"Nach Updates suchen",checking:"Suche…",up_to_date:"Aktuell (v{x})",update_avail:"Version {x} verfügbar",update_now:"Jetzt aktualisieren",updating:"Aktualisierung…",update_started:"Update gestartet — das Gerät startet neu.",update_confirm:"Neueste Version herunterladen, installieren und neu starten?",update_check_failed:"Updates konnten nicht geprüft werden.",factory_reset:"Werksreset",factory_desc:"Alle Einstellungen löschen — Login, Kameras, Hotspot, gespeicherte Netzwerke, Hostname — und mit Standardwerten neu starten.",factory_confirm:"ALLE Einstellungen löschen und mit Standardwerten neu starten? Der Hotspot wird wieder CameraBox / 192.168.4.1, der Login admin / password.",factory_started:"Zurücksetzen — das Gerät startet neu.",resetting:"Zurücksetzen…",
   name_saved:"Gerätename gespeichert.",password_updated:"Passwort aktualisiert.",stream_protection:"Stream-Schutz",protected_w:"Geschützt",auth_user_ph:"Benutzer (leer = aus)",auth_saved:"Stream-Schutz aktualisiert.",copy_link:"Link kopieren",link_copied:"Stream-Link kopiert.",credentials:"Zugangsdaten",protected_stream:"Geschützter Stream",show_login:"Anmeldedaten anzeigen",copy_creds:"Zugangsdaten kopieren",creds_copied:"Zugangsdaten kopiert."},
  it:{nav_dashboard:"Dashboard",nav_cameras:"Telecamere",nav_network:"Rete",nav_system:"Sistema",nav_logs:"Registri",nav_settings:"Impostazioni",help:"Aiuto",logout:"Esci",help_tip:"Collega telecamere USB e configura il Wi-Fi nella scheda Rete.",
   welcome:"Bentornato",all_good:"Tutto a posto. La tua camera-box funziona normalmente.",needs_sub:"Alcune cose richiedono la tua attenzione.",
@@ -758,7 +778,7 @@ var LANG={
   your_device:"Il tuo dispositivo",processor:"Processore",memory:"Memoria",storage:"Archiviazione",temperature:"Temperatura",network_activity:"Attività di rete",measuring:"misurazione…",interface:"Interfaccia",down:"Download",up:"Upload",
   model:"Modello",firmware:"Firmware",hostname:"Nome host",local_time:"Ora locale",system_uptime:"Tempo di attività",cpu:"CPU",disk:"Disco",
   logs_sub:"Attività recente del dispositivo.",search_logs:"Cerca nei registri",all_levels:"Tutti i livelli",autoscroll:"Scorrimento auto",onword:"Attivo",offword:"Disattivo",download:"Scarica",no_log_lines:"Nessuna riga di registro.",
-  settings_sub:"Gestisci il tuo dispositivo.",general:"Generale",reachable_as:"Raggiungibile come {x}.local",device_name:"Nome dispositivo",save:"Salva",security:"Sicurezza",username:"Nome utente",new_password:"Nuova password",update_password:"Aggiorna password",about:"Informazioni",uptime:"Tempo attività",check_updates:"Controlla aggiornamenti",checking:"Controllo…",up_to_date:"Aggiornato (v{x})",update_avail:"Versione {x} disponibile",update_now:"Aggiorna ora",updating:"Aggiornamento…",update_started:"Aggiornamento avviato — il dispositivo si riavvierà.",update_confirm:"Scaricare e installare l'ultima versione e riavviare?",update_check_failed:"Impossibile controllare gli aggiornamenti.",
+  settings_sub:"Gestisci il tuo dispositivo.",general:"Generale",reachable_as:"Raggiungibile come {x}.local",device_name:"Nome dispositivo",save:"Salva",security:"Sicurezza",username:"Nome utente",new_password:"Nuova password",update_password:"Aggiorna password",about:"Informazioni",uptime:"Tempo attività",check_updates:"Controlla aggiornamenti",checking:"Controllo…",up_to_date:"Aggiornato (v{x})",update_avail:"Versione {x} disponibile",update_now:"Aggiorna ora",updating:"Aggiornamento…",update_started:"Aggiornamento avviato — il dispositivo si riavvierà.",update_confirm:"Scaricare e installare l'ultima versione e riavviare?",update_check_failed:"Impossibile controllare gli aggiornamenti.",factory_reset:"Ripristino di fabbrica",factory_desc:"Cancella tutte le impostazioni — accesso, telecamere, hotspot, reti salvate, nome host — e riavvia con i valori predefiniti.",factory_confirm:"Cancellare TUTTE le impostazioni e riavviare con i valori predefiniti? L'hotspot torna CameraBox / 192.168.4.1 e l'accesso admin / password.",factory_started:"Ripristino — il dispositivo si riavvierà.",resetting:"Ripristino…",
   name_saved:"Nome del dispositivo salvato.",password_updated:"Password aggiornata.",stream_protection:"Protezione flusso",protected_w:"Protetto",auth_user_ph:"utente (vuoto = off)",auth_saved:"Protezione flusso aggiornata.",copy_link:"Copia link",link_copied:"Link del flusso copiato.",credentials:"Credenziali",protected_stream:"Flusso protetto",show_login:"Mostra credenziali",copy_creds:"Copia credenziali",creds_copied:"Credenziali copiate."}
 };
 var lang; try{lang=localStorage.getItem('cb_lang');}catch(e){} if(!lang||!LANG[lang]){var nv=(navigator.language||'en').slice(0,2).toLowerCase();lang=LANG[nv]?nv:'en';}
@@ -1037,6 +1057,9 @@ function renderSettings(){
  h+='<div class="card"><div class="row" style="gap:12px;margin-bottom:4px"><div class="ic-circle ic-purple" style="width:38px;height:38px;border-radius:11px">'+ic('help',18)+'</div><h2 style="margin:0;font-size:16px">'+t('about')+'</h2></div>'+
   '<div class="kvs"><div class="k">'+t('device')+'</div><div class="v">'+esc(sy.model||'')+'</div><div class="k">'+t('firmware')+'</div><div class="v">camera-box '+esc(sy.version||'')+'</div><div class="k">'+t('uptime')+'</div><div class="v">'+fmtUptime(sy.uptime||0)+'</div></div>'+
   '<div class="row" style="margin-top:14px;gap:10px;flex-wrap:wrap"><button class="btn sm" onclick="checkUpdate(this)">'+ic('download',15)+t('check_updates')+'</button><span id="updinfo" class="muted" style="font-size:13px"></span></div></div>';
+ h+='<div class="card"><div class="row" style="gap:12px;margin-bottom:4px"><div class="ic-circle ic-red" style="width:38px;height:38px;border-radius:11px">'+ic('trash',18)+'</div><h2 style="margin:0;font-size:16px">'+t('factory_reset')+'</h2></div>'+
+  '<div class="muted" style="font-size:13px">'+t('factory_desc')+'</div>'+
+  '<div class="row" style="margin-top:14px"><button class="btn danger" onclick="doFactoryReset(this)">'+t('factory_reset')+'</button></div></div>';
  h+='</div>';
  el('p-settings').innerHTML=h;
 }
@@ -1053,6 +1076,9 @@ function doUpdate(btn){ if(!confirm(t('update_confirm')))return; btn.disabled=tr
   if(x.ok){ toast(t('update_started')); setTimeout(function(){location.reload();},20000); }
   else { btn.disabled=false; btn.textContent=t('update_now'); toast((x.d&&x.d.error)||t('failed'),1); }
  }).catch(function(){ toast(t('update_started')); setTimeout(function(){location.reload();},20000); }); }
+function doFactoryReset(btn){ if(!confirm(t('factory_confirm')))return; btn.disabled=true; btn.textContent=t('resetting'); toast(t('factory_started'));
+ var done=function(){ setTimeout(function(){location.reload();},30000); };
+ api('POST','/api/factory-reset').then(done).catch(done); }
 
 // ===== poll =====
 var tickN=0;
