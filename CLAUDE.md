@@ -13,9 +13,11 @@ Pi OS Lite. **Linux-only** (V4L2 ioctls, netlink uevents, and it drives `iw`/
 `hostapd`/`wpa_supplicant`/`hostnamectl`) — it will not build or run on
 Windows/macOS even though development may happen there.
 
-Module map beyond camera/stream/web: `net.rs` (Wi-Fi + hostname/mDNS),
-`sys.rs` (system overview + byte counters), `logs.rs` (log ring buffer),
-`auth.rs` (hashed credentials + sessions). See the README's source-layout table.
+Module map beyond camera/stream/web: `net.rs` (Wi-Fi + hostname/mDNS +
+`factory_reset`), `sys.rs` (system overview + byte counters), `logs.rs` (log
+ring buffer), `auth.rs` (hashed credentials + sessions), `update.rs` (self-update
+from GitHub Releases), `button.rs` (optional GPIO factory-reset button). See the
+README's source-layout table.
 
 ## Core architectural constraint
 
@@ -33,6 +35,12 @@ cargo run                    # run locally (needs root + Linux + cameras to do a
 cargo clippy --all-targets   # lint
 cargo fmt                    # format
 ```
+
+CLI subcommands (handled in `main.rs` before the daemon starts, so they work
+without a running service): `camera-box version` (also used by the self-updater
+to sanity-check a freshly-downloaded binary), `camera-box reset-password [user]
+[pass]` (recover a locked-out login), `camera-box factory-reset` (wipe all saved
+state under `/var/lib/camera-box` and reboot).
 
 Releases use static musl via `cross` (Docker): `arm-unknown-linux-musleabihf`
 for Pi Zero W v1.1 (armv6), `aarch64-unknown-linux-musl` / `armv7-...` for the
@@ -120,6 +128,22 @@ MJPEG-capable cameras get `--format=MJPEG --encoder=NOOP` (true passthrough,
 lowest latency); others get `--encoder=CPU` (re-encode). Child stdio is
 inherited so ustreamer logs land in journald next to ours.
 
+### Self-update and factory reset (`update.rs`, `net.rs`, `button.rs`)
+
+Self-update (`update.rs`, routes `/api/version`, `/api/update/check`,
+`/api/update`) pulls the latest GitHub release, picks the asset by `uname -m`,
+verifies its SHA-256 against the release's `SHA256SUMS`, runs the download once
+(`camera-box version`) to reject a wrong-arch binary, swaps it in atomically
+(stage-in-dir + rename, keeping a `.bak`), then `systemctl restart`s. Downloads
+are HTTPS + checksum-verified but **not** GPG-signed — trust rests on GitHub.
+
+Factory reset lives in `net::factory_reset` (wipes `/var/lib/camera-box`) and is
+reachable three ways that all call it: the dashboard, the `factory-reset` CLI,
+and an optional GPIO button (`button.rs`, spawned from `main.rs`) armed by config
+`reset_button = "gpiochip0:17"` — held for `reset_hold_secs`, it resets and
+reboots. GPIO uses the pure-Rust `gpiocdev` crate (GPIO cdev, no `libgpiod` C
+dep — consistent with the no-`libudev` stance below).
+
 ## Conventions
 
 - **Logging**: `tracing` to stdout (journald captures it). Always log camera
@@ -128,9 +152,8 @@ inherited so ustreamer logs land in journald next to ours.
 - **Config** (`config.rs`): every field has a default via `#[serde(default)]` +
   `Default`. A missing or invalid `/etc/camera-box/config.toml` must never be
   fatal — fall back to defaults and log.
-- **Modules are role-based and flat**: `main/config/camera/stream/web/update`.
-  Keep new code in the matching module; `update.rs` is intentionally a
-  placeholder structured so real update logic slots in behind the same routes.
+- **Modules are role-based and flat**: `main/config/camera/stream/web/update/
+  net/sys/logs/auth/button`. Keep new code in the matching module.
 - The daemon assumes it runs as root (port 80, `/dev/video*`, and binding the
   netlink uevent multicast group).
 - **No C/system library dependencies** — hotplug is read from the kernel netlink
