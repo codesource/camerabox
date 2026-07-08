@@ -7,3 +7,10 @@ Cargo.lock.orig
 
 # release staging
 /dist
+
+# built OS images (see scripts/build-minimal-image-luckfox-lyra-zero-w.sh --out)
+/images/*
+!/images/.gitkeep
+
+# minimal-image build work directory (build-minimal-image ... --work)
+/build-lyra-minimal/
