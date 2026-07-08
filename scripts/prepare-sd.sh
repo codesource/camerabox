@@ -31,11 +31,16 @@
 #     --image https://github.com/platima/SBC-Images/raw/main/Luckfox/Lyra/Lyra%20Zero%20W/<image>.img.bz2 \
 #     --binary ./camera-box-luckfox-lyra-zero-w
 #
-# Requires: qemu-user-static + binfmt-support (for the ARM chroot), parted,
-# e2fsprogs, growpart/sgdisk (to grow the rootfs), and a modern systemctl
+# Requires: an ARM user-mode qemu + binfmt registration (for the ARM chroot),
+# parted, e2fsprogs, growpart/sgdisk (to grow the rootfs), and a modern systemctl
 # (offline --root enable). On Debian/Ubuntu:
+#   # older hosts:
 #   sudo apt install qemu-user-static binfmt-support parted e2fsprogs \
 #                    cloud-guest-utils gdisk curl
+#   # Debian 13 / Ubuntu 24.10+ (qemu-user-static is virtual):
+#   sudo apt install qemu-user qemu-user-binfmt parted e2fsprogs \
+#                    cloud-guest-utils gdisk curl
+#   sudo systemctl restart systemd-binfmt
 #
 # NOTE: developed against the Pi build; not yet verified on Lyra hardware.
 set -euo pipefail
@@ -112,7 +117,14 @@ done
 
 [[ $EUID -eq 0 ]] || die "run as root (sudo ...)"
 for t in lsblk parted e2fsck resize2fs findmnt install curl; do need "$t"; done
-[[ -x /usr/bin/qemu-arm-static ]] || die "install qemu-user-static + binfmt-support first"
+# ARM chroot needs a user-mode emulator: a static qemu-arm-static to copy in
+# (older hosts), or qemu-arm registered in binfmt_misc with the 'F' (fix-binary)
+# flag (Debian 13 / Ubuntu 24.10+, where qemu-user-static is a virtual package —
+# install 'qemu-user qemu-user-binfmt' + 'sudo systemctl restart systemd-binfmt').
+[[ -x /usr/bin/qemu-arm-static ]] || grep -sq 'F' /proc/sys/fs/binfmt_misc/qemu-arm \
+    || die "no ARM qemu available. Install 'qemu-user-static' (older) OR
+     'qemu-user qemu-user-binfmt' + 'sudo systemctl restart systemd-binfmt'
+     (newer), then verify: grep F /proc/sys/fs/binfmt_misc/qemu-arm"
 [[ ${#AP_PASS} -ge 8 && ${#AP_PASS} -le 63 ]] || die "--pass must be 8-63 characters"
 [[ "$AP_IP" == */24 ]] || die "--ip must be a.b.c.d/24 (e.g. 192.168.4.1/24)"
 
