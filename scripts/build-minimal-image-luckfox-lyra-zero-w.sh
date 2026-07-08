@@ -53,7 +53,7 @@
 #
 #   sudo bash scripts/build-minimal-image-luckfox-lyra-zero-w.sh \
 #       [--sdk ~/rk3506-ubuntu] \
-#       [--base-image ./Luckfox_Lyra_Zero_W-2503_Ubuntu.img.bz2] \
+#       [--base-image ./Luckfox_...img.bz2 | URL]  # local path OR http(s) URL \
 #       [--suite trixie] [--mirror URL] [--out FILE.img] [--work DIR] \
 #       [--skip-kernel]        # reuse the SDK's existing kernel build output
 #       [--keep-base-kernel]   # don't touch the kernel: swap ONLY the rootfs
@@ -67,10 +67,19 @@
 # The image boots inert-but-reachable if flashed as-is (ssh root/camerabox, no
 # hotspot); prepare-sd.sh is what installs camera-box and arms the hotspot.
 #
-# Requires: debootstrap qemu-user-static binfmt-support parted e2fsprogs rsync
-# curl bzip2 xz-utils file. On Debian/Ubuntu:
+# Requires: debootstrap, an ARM user-mode qemu + binfmt registration, parted,
+# e2fsprogs, rsync, curl, bzip2, xz-utils, file. On older Debian/Ubuntu the qemu
+# piece is the single 'qemu-user-static' package; on Debian 13 / Ubuntu 24.10+
+# that's a virtual package — install 'qemu-user qemu-user-binfmt' instead and
+# register with 'sudo systemctl restart systemd-binfmt' (the arm interpreter must
+# have the binfmt 'F' flag: grep F /proc/sys/fs/binfmt_misc/qemu-arm).
+#   # older hosts:
 #   sudo apt install debootstrap qemu-user-static binfmt-support parted \
 #                    e2fsprogs rsync curl bzip2 xz-utils file
+#   # Debian 13 / Ubuntu 24.10+:
+#   sudo apt install debootstrap qemu-user qemu-user-binfmt parted \
+#                    e2fsprogs rsync curl bzip2 xz-utils file
+#   sudo systemctl restart systemd-binfmt
 #
 # First kernel build takes a while (20-60 min); debootstrap under qemu ~10-20
 # min. Flashing + the one-time SPI erase are covered by prepare-sd.sh and
@@ -100,11 +109,94 @@ PKGS_CORE="systemd systemd-sysv systemd-timesyncd udev dbus kmod
            isc-dhcp-client avahi-daemon rfkill wireless-regdb ca-certificates"
 # Small but invaluable on a headless camera box; trim if you want it tighter.
 PKGS_DEBUG="usbutils v4l-utils iputils-ping htop"
+# USB Wi-Fi dongle support for the second radio (wlan1): firmware blobs
+# (Ralink/MediaTek in firmware-misc-nonfree; Realtek incl. rtw88's rtw8822c_fw in
+# firmware-realtek — both need the 'non-free-firmware' component enabled in the
+# rootfs sources.list below) plus usb-modeswitch, which flips Realtek CD-ROM-mode
+# dongles (e.g. RTL8822CU, 0bda:1a2b) into WLAN mode (0bda:c812) on plug-in.
+# The on-board AIC8800 uses none of these — its firmware is harvested separately.
+PKGS_WIFI="firmware-misc-nonfree firmware-realtek usb-modeswitch usb-modeswitch-data"
 
 die()  { echo "error: $*" >&2; exit 1; }
 warn() { echo ">> WARN: $*" >&2; }
 info() { echo ">> $*"; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing tool: $1 (see the header for the apt install line)"; }
+
+# Reject the downloads that silently look like an image but aren't: a Git LFS
+# pointer, an HTML error page, or a truncated file — and check the compression
+# magic matches the extension. Diagnostics go to stderr so callers can capture
+# a resolved path on stdout. die() aborts; wrap in a subshell for a soft check.
+validate_base_image() {
+    local f="$1" sz sig
+    sz="$(stat -c%s "$f" 2>/dev/null || echo 0)"
+    [[ "$sz" -ge 1048576 ]] || die "'$f' is only ${sz} bytes — too small to be a disk
+     image (a Git LFS pointer or an error page?). For platima/SBC-Images use the
+     github.com/.../raw/ URL, NOT raw.githubusercontent.com (which returns the pointer)."
+    sig="$(head -c8 "$f" | od -An -tx1 | tr -d ' \n')"
+    case "$f" in
+        *.bz2) [[ "$sig" == 425a68* ]]       || die "'$f' is not a bzip2 file (magic '$sig') — re-download it." ;;
+        *.xz)  [[ "$sig" == fd377a585a00* ]] || die "'$f' is not an xz file (magic '$sig') — re-download it." ;;
+        *.gz)  [[ "$sig" == 1f8b* ]]         || die "'$f' is not a gzip file (magic '$sig') — re-download it." ;;
+        *.img) : ;;  # raw image — nothing to check
+        *)     warn "unrecognised base-image extension on '$f' — proceeding anyway" ;;
+    esac
+}
+
+# Resolve --base-image to a local file: accept a path as-is, or download an
+# http(s) URL into images/ (cached by basename; reused if already valid). Prints
+# the resolved local path on stdout.
+resolve_base_image() {
+    local src="$1" name dest
+    if [[ "$src" =~ ^https?:// ]]; then
+        need curl
+        name="$(basename "${src%%\?*}")"
+        [[ "$name" == *.* ]] || die "cannot derive a filename from URL: $src"
+        mkdir -p "$PWD/images"
+        dest="$PWD/images/$name"
+        if [[ -s "$dest" ]] && ( validate_base_image "$dest" ) >/dev/null 2>&1; then
+            info "base image already present: $dest (delete it to re-fetch)" >&2
+        else
+            info "downloading base image -> $dest" >&2
+            curl -fL --retry 3 --progress-bar -o "$dest" "$src" >&2 \
+                || { rm -f "$dest"; die "download failed: $src"; }
+        fi
+        src="$dest"
+    fi
+    [[ -f "$src" ]] || die "base image not found: $src"
+    validate_base_image "$src" >&2
+    echo "$src"
+}
+
+# Fallback for SDK checkouts that lack the (normally shipped) rk3506-ubuntu
+# .dockerfile: Ubuntu 22.04 + python2 + the SDK's build deps. CRUCIAL: create a
+# UID-1000 user with passwordless sudo — the SDK runs as root then drops to the
+# bind-mounted tree's owner (UID 1000) to compile via 'sudo -u #1000', so that
+# user MUST exist or the kernel build dies with "unknown user #1000". python must
+# point at python2 for the SDK's legacy scripts. No COPY/ADD (built via stdin).
+write_sdk_dockerfile() {
+    local out="$1"
+    cat > "$out" <<'DOCKERFILE'
+# Generated by camera-box build-minimal-image-luckfox-lyra-zero-w.sh as a
+# fallback (the rk3506-ubuntu SDK normally ships its own rk3506-ubuntu.dockerfile).
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get -y dist-upgrade && apt-get -y install \
+        git ssh make gcc libssl-dev liblz4-tool expect expect-dev g++ patchelf \
+        chrpath gawk texinfo diffstat binfmt-support qemu-user-static live-build \
+        bison flex fakeroot cmake gcc-multilib g++-multilib unzip \
+        device-tree-compiler ncurses-dev libgucharmap-2-90-dev bzip2 expat gpgv2 \
+        cpp-aarch64-linux-gnu libgmp-dev libmpc-dev bc python-is-python3 python2 \
+        rsync sudo bsdmainutils nano \
+    && ln -sf /usr/bin/python2 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+# The SDK drops to UID 1000 (the mounted tree's owner) to compile — it must exist.
+RUN groupadd -g 1000 lyra \
+    && useradd -u 1000 -g lyra -G sudo -m -s /bin/bash lyra \
+    && sed -ri 's/^%sudo.*/%sudo ALL=(ALL:ALL) NOPASSWD: ALL/' /etc/sudoers \
+    && echo 'lyra ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+ENTRYPOINT ["/bin/bash", "-c"]
+DOCKERFILE
+}
 
 usage() {
     awk 'NR>=2 && /^#/{sub(/^# ?/,"");print;next} NR>=2{exit}' "$0"
@@ -131,7 +223,13 @@ done
 
 [[ $EUID -eq 0 ]] || die "run as root (sudo ...)"
 for t in debootstrap rsync losetup parted blkid mkfs.ext4 curl file bzip2 df stat; do need "$t"; done
-[[ -x /usr/bin/qemu-arm-static ]] || die "install qemu-user-static + binfmt-support first"
+# Need an ARM user-mode emulator reachable from the armhf chroot: either a static
+# qemu-arm-static to copy in (older hosts), or qemu-arm registered in binfmt_misc
+# with the 'F' (fix-binary) flag (Debian 13 / Ubuntu 24.10+). See the header.
+[[ -x /usr/bin/qemu-arm-static ]] || grep -sq 'F' /proc/sys/fs/binfmt_misc/qemu-arm \
+    || die "no ARM qemu available. Install 'qemu-user-static' (older) OR
+     'qemu-user qemu-user-binfmt' + 'sudo systemctl restart systemd-binfmt'
+     (newer), then verify: grep F /proc/sys/fs/binfmt_misc/qemu-arm"
 
 # --- interactive: resolve the inputs -----------------------------------------
 if [[ -z "$BASE_IMAGE" ]]; then
@@ -139,9 +237,12 @@ if [[ -z "$BASE_IMAGE" ]]; then
     echo "A known-good dd-able base image is required — its bootloader/partition"
     echo "table are reused verbatim (e.g. Luckfox_Lyra_Zero_W-2503_Ubuntu.img.bz2"
     echo "from https://github.com/platima/SBC-Images, the one whose AP is proven)."
-    read -rp "Path to the base image: " BASE_IMAGE
+    echo "Accepts a local path OR an http(s) URL (downloaded into images/)."
+    read -rp "Path or URL to the base image: " BASE_IMAGE
 fi
-[[ -f "$BASE_IMAGE" ]] || die "base image not found: $BASE_IMAGE"
+# Accept a local file or an http(s) URL; a URL is fetched into images/ (cached)
+# and validated (rejects Git LFS pointers / HTML / truncated downloads).
+BASE_IMAGE="$(resolve_base_image "$BASE_IMAGE")"
 
 if [[ -z "$KEEP_BASE_KERNEL" && -z "$SDK" ]]; then
     [[ -z "$ASSUME_YES" ]] || die "--sdk is required with --yes (or pass --keep-base-kernel)"
@@ -165,9 +266,10 @@ if [[ -z "$KEEP_BASE_KERNEL" ]]; then
 fi
 
 # The SDK's own build environment: Ubuntu 22.04 + python2 + a global
-# python->python2 symlink. NEVER install that on the host — run every SDK
-# command inside the docker image the SDK itself ships (rk3506-ubuntu.dockerfile).
-# The dockerfile uses a shell-form ENTRYPOINT, so commands go via --entrypoint.
+# python->python2 symlink. NEVER install that on the host — run every SDK command
+# inside the docker image built from rk3506-ubuntu.dockerfile (which the SDK
+# README documents but does not ship, so we generate it via write_sdk_dockerfile).
+# We pass the command via --entrypoint /bin/bash regardless of the image's own.
 sdk_run() {
     if [[ -n "$NATIVE" ]]; then
         ( cd "$SDK" && bash -c "$*" )
@@ -184,17 +286,32 @@ if [[ -z "$KEEP_BASE_KERNEL" ]]; then
         command -v python2 >/dev/null 2>&1 || warn "python2 not found on this host — the SDK build will likely fail"
     else
         need docker
-        if ! docker image inspect "$DOCKER_IMG" >/dev/null 2>&1; then
-            [[ -f "$SDK/rk3506-ubuntu.dockerfile" ]] || die "$SDK/rk3506-ubuntu.dockerfile not found — wrong SDK checkout?"
-            info "building the SDK docker image '$DOCKER_IMG' (one-time)"
-            ( cd "$SDK" && docker build --rm -f rk3506-ubuntu.dockerfile -t "$DOCKER_IMG" . ) \
+        # The image is usable only if it exists AND contains the build user
+        # (UID 1000): the SDK runs as root then drops to that UID to compile
+        # ('sudo -u #1000 make …'), so an image lacking it dies with
+        # "unknown user #1000". Rebuild when missing or incomplete.
+        if ! { docker image inspect "$DOCKER_IMG" >/dev/null 2>&1 \
+               && docker run --rm --entrypoint /bin/bash "$DOCKER_IMG" \
+                    -c 'getent passwd 1000 >/dev/null 2>&1'; }; then
+            if docker image inspect "$DOCKER_IMG" >/dev/null 2>&1; then
+                info "existing '$DOCKER_IMG' lacks build UID 1000 — rebuilding it"
+                docker rmi -f "$DOCKER_IMG" >/dev/null 2>&1 || true
+            fi
+            if [[ ! -f "$SDK/rk3506-ubuntu.dockerfile" ]]; then
+                info "SDK ships no rk3506-ubuntu.dockerfile — generating it (Ubuntu 22.04 + python2, per the SDK README)"
+                write_sdk_dockerfile "$SDK/rk3506-ubuntu.dockerfile"
+            fi
+            info "building the SDK docker image '$DOCKER_IMG' (one-time, ~5-10 min)"
+            # Pipe the dockerfile via stdin so the 2.7 GB SDK isn't sent as build
+            # context (the image has no COPY/ADD, so it needs no file context).
+            docker build --rm -t "$DOCKER_IMG" - < "$SDK/rk3506-ubuntu.dockerfile" \
                 || die "docker image build failed"
         fi
     fi
 fi
 
 WORK="${WORK:-$PWD/build-lyra-minimal}"
-OUT="${OUT:-$PWD/camera-box-lyra-minimal.img}"
+OUT="${OUT:-$PWD/images/camera-box-lyra-minimal.img}"
 
 # --- interactive: enough space in the selected folders? ----------------------
 # The work dir holds the decompressed base copy + the debootstrap rootfs; the
@@ -297,6 +414,51 @@ EOF
         fi
         info "UVC fragment registered in $BOARD_DEFCONFIG"
 
+        # -- enable USB Wi-Fi dongle drivers via a second fragment ------------
+        # camera-box already supports a secondary Wi-Fi interface (wlan1) as a
+        # DHCP client (net.rs); the minimal image just lacks a USB Wi-Fi *device*
+        # driver — mac80211/cfg80211 are already built. Enable the common
+        # mainline USB-dongle drivers as modules (an unused one costs nothing) so
+        # any supported dongle comes up as wlan1 without another rebuild. NB: the
+        # RTL8188GU (RTL8710BU) has NO usable in-tree driver in 6.1 — use an
+        # rt2800usb / mt7601u / mt76x2u / rtl8xxxu dongle instead.
+        cat > "$KDIR/arch/arm/configs/rk3506-wifi.config" <<'EOF'
+# camera-box: USB Wi-Fi dongle support (secondary client interface, wlan1)
+CONFIG_WLAN=y
+# Vendor gates: the base rk3506_luckfox_defconfig explicitly disables these
+# (# CONFIG_WLAN_VENDOR_* is not set), which HIDES every driver beneath them —
+# they MUST be re-enabled here or the driver symbols below are silently dropped.
+CONFIG_WLAN_VENDOR_RALINK=y
+CONFIG_WLAN_VENDOR_MEDIATEK=y
+CONFIG_WLAN_VENDOR_REALTEK=y
+# Ralink RT2870/RT3070/RT5370 (rt2x00) — cheap, reliable, 2.4GHz
+CONFIG_RT2X00=m
+CONFIG_RT2800USB=m
+CONFIG_RT2800USB_RT33XX=y
+CONFIG_RT2800USB_RT35XX=y
+CONFIG_RT2800USB_RT3573=y
+CONFIG_RT2800USB_RT53XX=y
+CONFIG_RT2800USB_RT55XX=y
+CONFIG_RT2800USB_UNKNOWN=y
+# MediaTek MT7601U (2.4GHz) and MT7610U/MT7612U (dual-band 5GHz)
+CONFIG_MT7601U=m
+CONFIG_MT76x0U=m
+CONFIG_MT76x2U=m
+# Realtek RTL8188EU/8192EU/8188FU/8723BU (rtl8xxxu)
+CONFIG_RTL8XXXU=m
+CONFIG_RTL8XXXU_UNTESTED=y
+# USB bus monitoring (usbmon) — lets 'usbtop' or a usbmon reader show per-device
+# throughput. The camera and the Wi-Fi dongle share one USB 2.0 bus, so this is
+# how you see whether they're contending for bandwidth.
+CONFIG_USB_MON=m
+EOF
+        if ! grep -q 'rk3506-wifi.config' "$BOARD_CFG"; then
+            sed -i 's/^RK_KERNEL_CFG_FRAGMENTS="\(.*\)"$/RK_KERNEL_CFG_FRAGMENTS="\1 rk3506-wifi.config"/' "$BOARD_CFG"
+            grep -q 'rk3506-wifi.config' "$BOARD_CFG" \
+                || echo 'RK_KERNEL_CFG_FRAGMENTS="rk3506-wifi.config"' >> "$BOARD_CFG"
+        fi
+        info "USB Wi-Fi fragment registered in $BOARD_DEFCONFIG"
+
         # Fix a vendor DTS bug: vdd_cpu declares itself as its own input
         # supply (vin-supply = <&vdd_cpu>), so the regulator fails to probe
         # (-EINVAL) and cpufreq/DVFS never comes up — the CPU stays stuck at
@@ -323,6 +485,9 @@ EOF
 
     grep -q '^CONFIG_USB_VIDEO_CLASS=m' "$KDIR/.config" \
         || die "CONFIG_USB_VIDEO_CLASS is NOT =m in $KDIR/.config after the build — the defconfig change didn't take; enable it via the SDK's kernel menuconfig and re-run with --skip-kernel"
+
+    grep -qE '^CONFIG_(RT2800USB|MT7601U|MT76x2U|RTL8XXXU)=m' "$KDIR/.config" \
+        || warn "no USB Wi-Fi dongle driver ended up =m in $KDIR/.config — a second-radio (wlan1) dongle won't work; check the rk3506-wifi.config fragment took"
 
     # the SDK packs the kernel+dtb into a Rockchip boot image — find it
     for c in "$SDK/output/image/boot.img" "$SDK/rockdev/boot.img" "$SDK/output/firmware/boot.img" \
@@ -368,17 +533,41 @@ EOF
         || die "aic8800 .ko files missing after the build"
     info "aic8800_fdrv.ko + aic_load_fw.ko staged"
 
+    # build the out-of-tree rtw88 (USB) driver. The in-tree rtw88 in this 6.1
+    # kernel is PCIe/SDIO only (no usb.c / no 8822cu), so USB Realtek dongles —
+    # notably RTL8822CU / 8821CU / 8811CU — need markbirss/rtw88, the SDK author's
+    # USB-capable backport. Its modules are named rtw_* (distinct from the in-tree
+    # rtw88_*) and are staged into updates/ so they win; firmware (rtw8822c_fw.bin)
+    # comes from firmware-realtek. Pairs with usb-modeswitch in the rootfs, which
+    # flips these dongles' CD-ROM mode (e.g. 0bda:1a2b) to WLAN mode (0bda:c812).
+    RTW88_DIR="$SDK/.camerabox-rtw88"
+    if [[ ! -e "$RTW88_DIR/Makefile" ]]; then
+        info "fetching out-of-tree rtw88 (markbirss/rtw88) for USB Wi-Fi dongles"
+        rm -rf "$RTW88_DIR"
+        git clone --depth 1 https://github.com/markbirss/rtw88 "$RTW88_DIR" \
+            || die "rtw88 clone failed (needs git + network on the host)"
+    fi
+    info "building the rtw88 USB Wi-Fi modules (all Realtek USB chips)"
+    sdk_run "SDKROOT=\$PWD; cd .camerabox-rtw88 && \
+             make KSRC=\$SDKROOT/$KREL KVER=$KVER ARCH=arm CROSS_COMPILE=\$SDKROOT/${CROSS_REL%gcc}" \
+        || die "rtw88 build failed"
+    find "$RTW88_DIR" -maxdepth 1 -name 'rtw_*.ko' \
+        -exec cp {} "$SDK/.camerabox-modules/lib/modules/$KVER/updates/" \;
+    find "$SDK/.camerabox-modules/lib/modules/$KVER/updates" -name 'rtw_8822cu.ko' | grep -q . \
+        || die "rtw_8822cu.ko missing after the rtw88 build"
+    info "rtw88 USB modules staged (rtw_8822cu + deps)"
+
     # build u-boot + idblock — the SD's own boot chain. The community base
     # image carries NO loader (sector 64 is empty; it relied on a factory
     # u-boot in SPI flash), so without this the image only boots on boards
     # whose SPI still holds a loader.
     UBOOT_IMG="$SDK/u-boot/uboot.img"
-    IDBLOCK="$(ls "$SDK"/u-boot/*idblock*.img 2>/dev/null | head -1)"
+    IDBLOCK="$(ls "$SDK"/u-boot/*idblock*.img 2>/dev/null | head -1 || true)"
     if [[ ! -f "$UBOOT_IMG" || -z "$IDBLOCK" ]]; then
         info "building u-boot + idblock"
         sdk_run './build.sh uboot' || die "u-boot build failed"
         UBOOT_IMG="$SDK/u-boot/uboot.img"
-        IDBLOCK="$(ls "$SDK"/u-boot/*idblock*.img 2>/dev/null | head -1)"
+        IDBLOCK="$(ls "$SDK"/u-boot/*idblock*.img 2>/dev/null | head -1 || true)"
     fi
     [[ -f "$UBOOT_IMG" && -n "$IDBLOCK" ]] || die "u-boot artifacts missing after the build (u-boot/uboot.img + *idblock*.img)"
     info "u-boot: $UBOOT_IMG, idblock: $IDBLOCK"
@@ -392,10 +581,21 @@ if [[ -f "$ROOTFS/etc/debian_version" ]]; then
 else
     info "debootstrap $SUITE minbase (armhf) -> $ROOTFS"
     debootstrap --arch=armhf --variant=minbase --foreign "$SUITE" "$ROOTFS" "$MIRROR"
-    cp /usr/bin/qemu-arm-static "$ROOTFS/usr/bin/"
+    # Provide the ARM emulator for the second stage. Older hosts ship a static
+    # /usr/bin/qemu-arm-static to copy in; newer ones (Debian 13 / Ubuntu 24.10+)
+    # drop it and instead register qemu-arm with the binfmt_misc 'F' (fix-binary)
+    # flag, so the kernel holds the interpreter fd open and it runs inside the
+    # chroot with nothing copied in. Support both.
+    if [[ -e /usr/bin/qemu-arm-static ]]; then
+        cp /usr/bin/qemu-arm-static "$ROOTFS/usr/bin/"
+    elif ! grep -sq 'F' /proc/sys/fs/binfmt_misc/qemu-arm; then
+        die "no qemu-arm-static, and arm binfmt isn't registered with the F flag —
+     install qemu-user + qemu-user-binfmt and run 'sudo systemctl restart
+     systemd-binfmt', then re-run (check: grep F /proc/sys/fs/binfmt_misc/qemu-arm)"
+    fi
     chroot "$ROOTFS" /debootstrap/debootstrap --second-stage
 fi
-cp -f /usr/bin/qemu-arm-static "$ROOTFS/usr/bin/" 2>/dev/null || true
+[[ -e /usr/bin/qemu-arm-static ]] && cp -f /usr/bin/qemu-arm-static "$ROOTFS/usr/bin/" 2>/dev/null || true
 
 mount --bind /dev  "$ROOTFS/dev"
 mkdir -p "$ROOTFS/dev/pts"; mount -t devpts devpts "$ROOTFS/dev/pts" 2>/dev/null || true
@@ -404,10 +604,14 @@ mount --bind /sys  "$ROOTFS/sys"
 mkdir -p "$ROOTFS/tmp"; chmod 1777 "$ROOTFS/tmp"
 printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > "$ROOTFS/etc/resolv.conf"
 
+# Enable the non-free-firmware component so USB Wi-Fi dongle firmware
+# (firmware-misc-nonfree / firmware-realtek) is installable in the chroot below.
+echo "deb $MIRROR $SUITE main non-free-firmware" > "$ROOTFS/etc/apt/sources.list"
+
 info "installing the camera-box requirements (emulated — slow)"
 # collapse the multi-line package lists to one line — an embedded newline
 # would split the apt command inside the heredoc
-PKGS_ALL="$(echo $PKGS_CORE $PKGS_DEBUG)"
+PKGS_ALL="$(echo $PKGS_CORE $PKGS_DEBUG $PKGS_WIFI)"
 chroot "$ROOTFS" /bin/bash -e <<CHROOT
 export DEBIAN_FRONTEND=noninteractive
 APT="apt-get -o APT::Sandbox::User=root -o Acquire::Languages=none \
